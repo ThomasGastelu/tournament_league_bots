@@ -1,0 +1,65 @@
+# inscription_manager — bot Discord de tournois Rocket League
+
+## Commandes
+
+| Commande | Qui | Ce qu'elle fait |
+|---|---|---|
+| `/tournoi_rl titre cashprize joueurs_par_equipe equipes_max date` | admins | Poste l'annonce avec le bouton **S'inscrire** dans le salon. |
+| `/tournoi_rl_modify id [titre] [cashprize] [equipes_max]` | admins | Modifie le titre, le cashprize et/ou le nombre maximum d'équipes (au moins un des trois). L'annonce est mise à jour. |
+| `/tournoi_rl_status id` | tout le monde | Équipes inscrites, joueurs qui n'ont pas validé, liste d'attente (réponse visible par toi seul). |
+| `/tournoi_rl_remove_team id team_id` | admins | Retire une équipe et fait monter la première équipe de la liste d'attente. |
+| `/tournoi_rl_remove id` | admins | Annule et efface le tournoi (après confirmation) : annonce supprimée, joueurs prévenus en MP, fichier JSON effacé. |
+
+Les `id` et `team_id` sont proposés en autocomplétion. Le `team_id` est le `#n` affiché dans `/tournoi_rl_status`.
+« Admins » = membres avec la permission **Gérer le serveur** (modifiable dans Paramètres du serveur > Intégrations).
+
+## Fonctionnement d'une inscription
+
+1. Un joueur clique sur **S'inscrire** : une fiche s'ouvre (nom d'équipe, son pseudo Rocket League, choix des coéquipiers parmi les membres du serveur). Il devient capitaine.
+2. L'équipe obtient sa place tout de suite (ou une place en liste d'attente si le tournoi est plein). La liste d'attente fait `equipes_max × 4`.
+3. Chaque coéquipier reçoit un MP avec **Confirmer ma participation** / **Refuser**. Confirmer ouvre une fiche qui demande son pseudo Rocket League (exactement le même que dans le jeu) (si ses MP sont fermés, le message est posté dans le salon en le mentionnant). Le capitaine reçoit un MP « tu t'es inscrit… en attente de : … » avec un bouton **Annuler l'inscription**.
+4. Les coéquipiers ont **30 minutes** (réglable avec `DELAI_CONFIRMATION_MINUTES` dans `.env`) pour confirmer (heure limite affichée dans les MP et dans `/tournoi_rl_status`). Passé ce délai, le bot désinscrit l'équipe automatiquement (vérification chaque minute, même après un redémarrage) et prévient tous ses joueurs en MP. Les équipes inscrites avant l'ajout de ce délai ne sont pas concernées.
+5. Si un coéquipier refuse, ne confirme pas à temps, si le capitaine annule ou si un admin retire l'équipe, la place est donnée à la première équipe de la liste d'attente, qui est prévenue en MP.
+
+Les données sont dans `data/tournois/<id>.json` (un fichier par tournoi).
+
+## Modifier un tournoi (`/tournoi_rl_modify`)
+
+- Seuls les champs remplis changent. La liste d'attente suit toujours : `equipes_max × 4`.
+- **Augmenter `equipes_max`** : les premières équipes de la liste d'attente montent sur les nouvelles places et sont prévenues en MP. Si le tournoi était complet, le bouton **S'inscrire** redevient cliquable.
+- **Baisser `equipes_max`** : impossible en dessous du nombre d'équipes déjà inscrites (aucune équipe n'est retirée automatiquement). Retire d'abord des équipes avec `/tournoi_rl_remove_team`.
+- Changer le titre ou le cashprize n'envoie pas de MP : seule l'annonce est mise à jour (les anciens MP gardent l'ancien texte).
+- ⚠️ Une fois le tournoi lancé avec `rl_tournament_manager`, les modifications ne changent plus le tournoi en cours (il a copié le titre et les équipes au lancement). Les équipes promues à ce moment-là ne jouent pas.
+
+## Installation
+
+### 1. Créer le bot sur Discord
+1. Va sur https://discord.com/developers/applications > **New Application** (nom : `inscription_manager`).
+2. Onglet **Bot** > **Reset Token** > copie le token (ne le partage jamais).
+   Il ressemble à `MTIz...abc.Gh1jK2.xyz...` (3 morceaux séparés par des points).
+   ⚠️ Ce n'est **pas** la *Public Key* ni l'*Application ID* (onglet General Information), ni le *Client Secret* (onglet OAuth2).
+3. Onglet **OAuth2** > note l'**Application ID** (Client ID).
+4. Invite le bot sur ton serveur avec ce lien (remplace `APPLICATION_ID`) :
+   `https://discord.com/oauth2/authorize?client_id=APPLICATION_ID&scope=bot+applications.commands&permissions=84992`
+   (permissions : Voir les salons, Envoyer des messages, Intégrer des liens, Voir l'historique).
+
+Aucun « Privileged Gateway Intent » n'est nécessaire.
+
+### 2. Configurer
+Copie `.env.example` en `.env` et remplis :
+- `DISCORD_TOKEN` : le token du bot.
+- `GUILD_ID` : l'ID de ton serveur (Paramètres Discord > Avancés > Mode développeur, puis clic droit sur le serveur > **Copier l'identifiant du serveur**). Avec cet ID, les commandes apparaissent immédiatement.
+- `DELAI_CONFIRMATION_MINUTES` : minutes laissées aux coéquipiers pour confirmer (30 par défaut, de 1 à 10080). Redémarre le bot après un changement. Le nouveau délai ne s'applique qu'aux inscriptions faites après le redémarrage : les équipes déjà inscrites gardent leur heure limite.
+
+### 3. Lancer (Windows, PowerShell)
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m bot_inscription_manager
+```
+Le bot doit rester lancé pour que les boutons fonctionnent. S'il redémarre, les anciens boutons remarchent.
+
+### Tests
+```powershell
+.venv\Scripts\python -m pytest
+```
