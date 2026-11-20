@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Fichiers propres à chaque PC / chaque utilisateur
+positions.json
+scores.json
+scores.json.tmp
+scores.json.bak
+resultats.jsonl
+labels.json

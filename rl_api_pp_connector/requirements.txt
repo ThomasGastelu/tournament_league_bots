@@ -1,0 +1,7 @@
+pyautogui>=0.9.54
+pydirectinput>=1.0.4
+pygetwindow>=0.0.9
+pillow>=10.0
+# Facultatif : lecture de l'écran (OCR) pour les étapes non calibrées.
+# Nécessite aussi Tesseract-OCR installé sur Windows.
+pytesseract>=0.3.10

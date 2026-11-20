@@ -1,0 +1,38 @@
+[
+  {
+    "date": "2026-11-13T12:10:31",
+    "match_guid": "A1B2C3D4E5F60718293A4B5C6D7E8F90",
+    "arena": "Stadium_P",
+    "overtime": false,
+    "winner_team_num": 0,
+    "teams": [
+      { "team_num": 0, "name": "Blue", "score": 3 },
+      { "team_num": 1, "name": "Orange", "score": 1 }
+    ],
+    "players": [
+      { "Name": "Tom", "TeamNum": 0, "Score": 640, "Goals": 2, "Assists": 1, "Saves": 2, "Shots": 5, "Demos": 1 },
+      { "Name": "Hugo", "TeamNum": 0, "Score": 410, "Goals": 1, "Assists": 1, "Saves": 1, "Shots": 3, "Demos": 0 },
+      { "Name": "Lucas", "TeamNum": 1, "Score": 380, "Goals": 1, "Assists": 0, "Saves": 3, "Shots": 4, "Demos": 2 },
+      { "Name": "Nathan", "TeamNum": 1, "Score": 210, "Goals": 0, "Assists": 1, "Saves": 1, "Shots": 1, "Demos": 0 }
+    ],
+    "partie": "111",
+    "statut": "terminé"
+  },
+  {
+    "date": "2026-11-13T12:24:02",
+    "match_guid": "0F1E2D3C4B5A69788796A5B4C3D2E1F0",
+    "arena": "DFHStadium",
+    "overtime": false,
+    "winner_team_num": null,
+    "teams": [
+      { "team_num": 0, "name": "Blue", "score": 1 },
+      { "team_num": 1, "name": "Orange", "score": 1 }
+    ],
+    "players": [
+      { "Name": "Tom", "TeamNum": 0, "Score": 220, "Goals": 1, "Assists": 0, "Saves": 1, "Shots": 2, "Demos": 0 },
+      { "Name": "Lucas", "TeamNum": 1, "Score": 190, "Goals": 1, "Assists": 0, "Saves": 0, "Shots": 2, "Demos": 1 }
+    ],
+    "partie": "222",
+    "statut": "quitté avant la fin"
+  }
+]
