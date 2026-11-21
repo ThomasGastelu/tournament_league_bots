@@ -11,6 +11,7 @@ Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), 
 | `/stop_tournament_rl id_tournoi` | admins | Arrête le tournoi (après confirmation) : matchs en cours annulés, joueurs prévenus en MP. |
 | `/set_result_tournament_rl id_tournoi zone gagnant score_gagnant score_perdant` | admins | Fixe le score d'un match (score pas pris par le bot, déclarations différentes, match bloqué…). Toujours prioritaire. |
 | `/edit_player_tournament_rl id_tournoi joueur [pseudo_jeu] [pseudo] [nom_equipe] [devient_capitaine] [remplace_par]` | admins | Modifie un joueur pendant le tournoi (voir « Modifier un joueur pendant le tournoi »). |
+| `/reset_tournament_rl id_tournoi [garder_salon]` | admins | Remet le tournoi à zéro (après confirmation) : efface tout ce que le bot a gardé sur lui pour le relancer de zéro (voir « Remettre un tournoi à zéro »). |
 
 `id_tournoi`, `zone`, `gagnant` et `joueur` sont proposés en autocomplétion.
 « Admins » = membres avec la permission **Gérer le serveur**.
@@ -97,6 +98,16 @@ Pour un **remplaçant**, le bot :
 
 Chaque modification est notée dans le JSON (`modifications` : qui, quand, avant → après) et dans `LOG_CHANNEL`. On ne peut pas modifier un tournoi terminé ou arrêté, ni ajouter ou retirer une équipe. Le fichier d'inscription n'est pas modifié.
 
+### Remettre un tournoi à zéro
+
+`/reset_tournament_rl` sert à recommencer un tournoi depuis le début (tournoi lancé par erreur, mauvais nombre de rounds, test…). Le bot affiche d'abord ce qu'il va effacer et demande de confirmer avec **Oui, tout effacer**. Ensuite :
+- si le tournoi est **en cours**, il s'arrête : matchs en cours annulés, annonce dans le salon des annonces et MP à chaque joueur (« tu peux quitter la partie privée ») ;
+- tous ses fichiers dans `data/` sont effacés : état et scores (`data/tournois/<id>.json`), parties privées de chaque round (`data/pp/<id>_ronde_<n>.json`) et anciens lancements archivés (`data/archives/<id>_*.json`) ;
+- son **salon de discussion** est supprimé avec ses messages (et ceux des anciens lancements archivés). Avec `garder_salon: True`, il reste : supprime-le à la main quand tu veux. S'il manque **Gérer les salons** au bot, la réponse le dit et le reste est quand même effacé ;
+- la remise à zéro est notée dans `LOG_CHANNEL`.
+
+Le fichier d'inscription (`../rl_bot_ppname_creator/data/tournois/<id>.json`) n'est **jamais touché** : équipes et joueurs restent inscrits. Relance le tournoi avec `/start_tournament_rl` (le tournoi est de nouveau proposé dans l'autocomplétion). **On ne peut pas revenir en arrière** : pour garder les résultats, utilise plutôt `/stop_tournament_rl`.
+
 ### Salons
 
 **Salon des annonces** (`SALON_ANNONCES`, sinon le salon où le tournoi a été créé) — public :
@@ -109,7 +120,7 @@ Chaque modification est notée dans le JSON (`modifications` : qui, quand, avant
 - visible seulement par les **joueurs des équipes participantes**, les **admins** (rôles avec « Gérer le serveur » ou « Administrateur »), l'admin qui a lancé le tournoi et le bot. Ils peuvent y écrire et y envoyer des fichiers (captures de score) ;
 - le bot y poste un message de bienvenue qui mentionne chaque joueur ; les mots de passe des parties restent en MP ;
 - un joueur qui a quitté le serveur n'y a pas accès : le bot le signale dans `LOG_CHANNEL` ;
-- son ID est gardé dans le JSON (`salon_discussion_id`). À la fin ou à l'arrêt du tournoi, le salon reste : supprime-le à la main quand tu veux. Un tournoi relancé a un nouveau salon.
+- son ID est gardé dans le JSON (`salon_discussion_id`). À la fin ou à l'arrêt du tournoi, le salon reste : supprime-le à la main quand tu veux. Un tournoi relancé a un nouveau salon. `/reset_tournament_rl` le supprime (sauf avec `garder_salon: True`).
 
 Il faut au bot **Gérer les salons** et **Joindre des fichiers** (en plus des permissions d'annonce) sur le serveur, et que la catégorie ne les lui retire pas. Sinon `/start_tournament_rl` refuse de lancer le tournoi et dit quoi cocher, et où (rôle du bot sur le serveur, ou catégorie).
 
@@ -134,6 +145,8 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
 | `data/tournois/<id>.json` | **État et résultats** : équipes (points, victoires, buts, historique), rounds (`rondes`), matchs, scores, déclarations. |
 | `data/pp/<id>_ronde_<n>.json` | Parties privées de chaque round (sortie de `generer_pp_names.py`). |
 | `data/archives/` | Ancien fichier de résultats quand on relance un tournoi déjà terminé ou arrêté. |
+
+`/reset_tournament_rl` efface les trois fichiers d'un tournoi (`data/tournois/`, `data/pp/`, `data/archives/`), jamais son fichier d'inscription.
 
 ### `data/tournois/<id>.json`
 
@@ -280,6 +293,9 @@ Les autres réglages ont des valeurs par défaut prêtes à l'emploi.
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
+# Seulement avec OBSERVATEUR=rl : modules du connecteur (pyautogui, pillow…).
+# Sans eux, le bot s'arrête avec « Module manquant : pip install pyautogui pillow ».
+.venv\Scripts\python -m pip install -r ..\rl_api_pp_connector\requirements.txt
 .venv\Scripts\python -m bot_tournament_manager
 ```
 

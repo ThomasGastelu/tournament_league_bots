@@ -43,6 +43,7 @@ class BotTournoi(discord.Client):
             pause_entre_rondes=config.pause_entre_rondes,
             rappel_clic_pp=config.rappel_clic_pp,
             attente_clic_pp_max=config.attente_clic_pp_max,
+            pp_forcee_zone_2=config.pp_forcee_zone_2,
         )
         self.journal = JournalDiscord(self.messagerie.journal) if config.log_channel else None
         self._demarrage_annonce = False

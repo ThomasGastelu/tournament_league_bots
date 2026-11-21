@@ -512,6 +512,61 @@ def texte_arret(etat: dict) -> str:
     return f"🛑 Le tournoi **{_titre(etat)}** a été arrêté par <@{etat['arrete_par']}>."
 
 
+# --------------------------------------------------------------------------- #
+# Remise à zéro (/reset_tournament_rl)
+# --------------------------------------------------------------------------- #
+
+def mp_reinitialisation(etat: dict) -> str:
+    return (f"🔄 Le tournoi **{_titre(etat)}** a été remis à zéro par un admin : les matchs en cours sont annulés "
+            "et les scores effacés. Tu peux quitter la partie privée. Les admins te diront quand il repart.")
+
+
+def texte_reinitialisation(etat: dict, par: str) -> str:
+    return f"🔄 Le tournoi **{_titre(etat)}** a été remis à zéro par <@{par}> : il repartira de zéro."
+
+
+def _fichiers(n: int) -> str:
+    return f"{n} fichier{'s' if n > 1 else ''}"
+
+
+def confirmation_reinitialisation(etat: dict, nb_fichiers: int, nb_salons: int, garder_salon: bool) -> str:
+    """Question posée à l'admin avant /reset_tournament_rl."""
+    lignes = [f"⚠️ Remettre à zéro le tournoi **{_titre(etat)}** ?"]
+    if etat.get("statut") == L.EN_COURS:
+        lignes.append("- il est **en cours** : il s'arrête, les matchs en cours sont annulés et les joueurs "
+                      "sont prévenus en MP ;")
+    lignes.append(f"- j'efface tout ce que j'ai gardé sur lui ({_fichiers(nb_fichiers)} : état, scores, "
+                  "classement, parties privées, anciens lancements archivés) ;")
+    if nb_salons:
+        salons = "le salon de discussion" if nb_salons == 1 else f"les {nb_salons} salons de discussion"
+        if garder_salon:
+            lignes.append(f"- {salons} du tournoi reste{'nt' if nb_salons > 1 else ''} (à supprimer à la main) ;")
+        else:
+            lignes.append(f"- je supprime {salons} du tournoi, avec leurs messages ;")
+    lignes.append("- les inscriptions ne bougent pas : relance-le ensuite avec `/start_tournament_rl`.")
+    lignes.append("**On ne peut pas revenir en arrière.**")
+    return "\n".join(lignes)
+
+
+def reponse_reinitialisation(bilan: dict) -> str:
+    """Réponse à l'admin après /reset_tournament_rl. `bilan` : voir GestionnaireTournois.reinitialiser()."""
+    lignes = [f"🔄 Tournoi **{escape_markdown(bilan['titre'])}** remis à zéro : "
+              f"{_fichiers(bilan['nb_fichiers'])} effacé{'s' if bilan['nb_fichiers'] > 1 else ''}."]
+    if bilan["etait_en_cours"]:
+        lignes.append("🛑 Il était en cours : matchs annulés, joueurs prévenus en MP.")
+    if bilan["salons_supprimes"]:
+        lignes.append(f"🗑️ Salon{'s' if len(bilan['salons_supprimes']) > 1 else ''} de discussion supprimé"
+                      f"{'s' if len(bilan['salons_supprimes']) > 1 else ''}.")
+    if bilan["salons_gardes"]:
+        lignes.append("💬 Salon(s) de discussion gardé(s) : " + " ".join(f"<#{i}>" for i in bilan["salons_gardes"]))
+    if bilan["salons_en_echec"]:
+        lignes.append("⚠️ Je n'ai pas pu supprimer " + " ".join(f"<#{i}>" for i in bilan["salons_en_echec"])
+                      + " : il me faut **Gérer les salons** (rôle du bot ou permissions du salon). "
+                        "Supprime-le à la main (clic droit sur le salon > **Supprimer le salon**).")
+    lignes.append(f"Pour le relancer : `/start_tournament_rl id_tournoi:{bilan['tournoi_id']}`")
+    return "\n".join(lignes)
+
+
 def texte_erreur(etat: dict) -> str:
     return (f"❌ Erreur inattendue pendant le tournoi **{_titre(etat)}** : il est en pause. "
             "Redémarre le bot pour le reprendre, ou arrête-le avec `/stop_tournament_rl`.")

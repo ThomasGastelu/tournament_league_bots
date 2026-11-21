@@ -63,6 +63,8 @@ class FausseMessagerie:
         self.salons_crees: list[tuple[str, int]] = []  # (tournoi, nombre de MP déjà envoyés à ce moment)
         self.acces_salon: list[tuple[str | None, str | None]] = []  # (ajouté, retiré)
         self.acces_salon_possible = True  # False : comme sans « Gérer les rôles »
+        self.salons_supprimes: list[str] = []
+        self.suppression_salon_possible = True  # False : comme sans « Gérer les salons »
         self.journaux: list[str] = []      # messages d'information de LOG_CHANNEL
         self.mps: list[tuple[str, str]] = []
         self.boutons: list[tuple[str, tuple[int, int, int]]] = []  # déclaration : (joueur, (round, zone, équipe))
@@ -109,6 +111,11 @@ class FausseMessagerie:
     async def changer_acces_salon(self, etat, *, ajouter=None, retirer=None) -> bool:
         self.acces_salon.append((ajouter, retirer))
         return self.acces_salon_possible
+
+    async def supprimer_salon_discussion(self, etat, salon_id) -> bool:
+        if self.suppression_salon_possible:
+            self.salons_supprimes.append(salon_id)
+        return self.suppression_salon_possible
 
     async def journal(self, texte) -> None:
         self.journaux.append(texte)

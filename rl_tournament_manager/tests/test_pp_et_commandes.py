@@ -21,7 +21,7 @@ def test_vrai_script_generer_pp_names(tmp_path):
 def test_noms_des_commandes():
     assert [c.name for c in COMMANDES] == [
         "start_tournament_rl", "start_tournament_rl_status", "stop_tournament_rl", "set_result_tournament_rl",
-        "edit_player_tournament_rl"]
+        "edit_player_tournament_rl", "reset_tournament_rl"]
     start = COMMANDES[0]
     assert [p.name for p in start.parameters] == ["id_tournoi", "nombre_de_matchs", "golden_round"]
     assert [p.required for p in start.parameters] == [True, True, False]
@@ -31,3 +31,7 @@ def test_noms_des_commandes():
         "id_tournoi", "joueur", "pseudo_jeu", "pseudo", "nom_equipe", "devient_capitaine", "remplace_par"]
     assert [p.required for p in edit.parameters] == [True, True, False, False, False, False, False]
     assert edit.get_parameter("pseudo_jeu").max_value == 32  # longueur max d'un texte
+    reset = COMMANDES[5]
+    assert [p.name for p in reset.parameters] == ["id_tournoi", "garder_salon"]
+    assert reset.get_parameter("garder_salon").default is False
+    assert reset.default_permissions.manage_guild  # admins seulement

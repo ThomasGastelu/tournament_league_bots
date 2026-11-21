@@ -105,7 +105,7 @@ Le bot démarre 5 s plus tard (laisse le jeu au premier plan).
 
 ### Quitter la partie
 
-Tape **`quit`** puis Entrée dans le terminal (`q`, `quitter`, `leave`, `exit`, `stop` marchent aussi). Le bot enregistre le score, attend 5 s, remet le jeu au premier plan et quitte la partie.
+Tape **`quit`** puis Entrée dans le terminal (`q`, `quitter`, `leave`, `exit`, `stop` marchent aussi). Le bot enregistre le score, attend 5 s et quitte la partie : **pendant ces 5 s, reclique sur Rocket League** (le bot ne remet plus le jeu au premier plan tout seul).
 
 ### Si la connexion échoue
 

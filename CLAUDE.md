@@ -9,7 +9,7 @@ Ce fichier guide Claude (et tout contributeur) dans ce dépôt.
 | Dossier | Paquet (`python -m …`) | Rôle |
 |---|---|---|
 | `rl_bot_ppname_creator/` | `bot_inscription_manager` | Inscriptions aux tournois (`/tournoi_rl*`), liste d'attente, confirmations des coéquipiers. Contient aussi le script `generer_pp_names.py` (noms / mots de passe des parties privées). |
-| `rl_tournament_manager/` | `bot_tournament_manager` | Fait jouer un tournoi inscrit : zones, rounds, MP avec les parties privées, prise des scores, déclarations, classement (`/start_tournament_rl`, `/stop_…`, `/set_result_…`, `/edit_player_…`). |
+| `rl_tournament_manager/` | `bot_tournament_manager` | Fait jouer un tournoi inscrit : zones, rounds, MP avec les parties privées, prise des scores, déclarations, classement (`/start_tournament_rl`, `/stop_…`, `/reset_…`, `/set_result_…`, `/edit_player_…`). |
 | `rl_bot_mp/` | `bot_mp` | `/mp_all` : envoie un MP à tous les membres du serveur (admins). Indépendant des deux autres. |
 | `rl_api_pp_connector/` | scripts (`python rl_join_bot.py …`) | Connecteur Rocket League : `rl_join_bot.py` rejoint une partie privée en pilotant les menus (pyautogui / pydirectinput, positions calibrées dans `positions.json`, OCR Tesseract facultatif) ; `rl_match_watcher.py` lit le score via la **Stats API** locale (`127.0.0.1:49123`). Utilisé seul ou par `tournament_manager` avec `OBSERVATEUR=rl`. |
 
@@ -30,6 +30,7 @@ bot_tournament_manager   ──lit───────────────�
 - Changer le format du JSON d'inscription ou la sortie de `generer_pp_names.py` impacte `tournament_manager` : vérifier `stockage.py`, `pp.py` et leurs tests des deux côtés.
 - Le format de résultat du connecteur (`build_result` + `partie` + `statut`) est reproduit à l'identique par `simulateur.py` : les garder alignés.
 - Une fois lancé, `tournament_manager` a copié titre et équipes : les modifications d'inscription ne s'appliquent plus au tournoi en cours.
+- `/reset_tournament_rl` (remise à zéro) efface uniquement les fichiers de `rl_tournament_manager/data/` du tournoi (`Stockage.fichiers_du_tournoi` : état, pp, archives) et supprime ses salons de discussion ; il ne touche jamais au JSON d'inscription.
 
 ## Stack
 
@@ -61,12 +62,21 @@ Connecteur Rocket League (depuis `rl_api_pp_connector/`, sur le PC où tourne le
 
 ```powershell
 python rl_join_bot.py --calibrate --resolution 1920x1200 --language en              # calibration des boutons (une fois)
+python rl_join_bot.py --calibrate --resolution 1920x1200 --language en --steps leave_match,confirm_yes   # recalibrer seulement certaines étapes
 python rl_join_bot.py --calibrate-back-to-menu --resolution 1920x1200 --language en # retour au menu si la partie n'existe pas
 python rl_join_bot.py --name 111 --password 111 --resolution 1920x1200 --language en
 python rl_match_watcher.py --output resultats.jsonl                                 # lecture seule du score, partie rejointe à la main
 ```
 
+Avec `OBSERVATEUR=rl`, installer aussi les modules du connecteur dans le venv de `tournament_manager` (sinon il s'arrête avec « Module manquant : pip install pyautogui pillow ») :
+
+```powershell
+.venv\Scripts\python -m pip install -r ..\rl_api_pp_connector\requirements.txt
+```
+
 Pour tester un tournoi complet sans jouer : `OBSERVATEUR=simulation` (par défaut), avec par exemple `ATTENTE_CLIC_PP_MAX=30`, `SIMULATION_PROBA_SANS_GAGNANT` et `SIMULATION_PROBA_COULEURS_INVERSEES` pour les cas difficiles.
+
+`PP_FORCEE_ZONE_2` (`.env` de `tournament_manager`, **tests uniquement**) impose le nom et le mot de passe de la partie privée de la zone 2 (`nom:mot_de_passe`, ou `nom` seul si les deux sont identiques), par exemple pour tester le vrai connecteur sur une partie déjà créée. Le bot logge un avertissement à chaque round. À laisser vide pour un vrai tournoi.
 
 ## rl_api_pp_connector
 
@@ -74,6 +84,8 @@ Pour tester un tournoi complet sans jouer : `OBSERVATEUR=simulation` (par défau
 - Format d'un résultat (voir `score.example.json`) : `date`, `match_guid`, `arena`, `overtime`, `winner_team_num` (`0` = Bleu, `1` = Orange, `null`), `teams`, `players` (clés Stats API en anglais : `Name`, `TeamNum`, `Goals`…), `partie`, `statut` (`terminé`, `quitté avant la fin`, `connexion perdue`).
 - Fichiers propres à chaque PC, ignorés par Git : `positions.json`, `scores.json` (+ `.tmp`/`.bak`), `resultats.jsonl`, `labels.json`. Ne pas les committer.
 - Pas de tests automatisés ici (le code pilote le vrai jeu) : tester la logique via les tests de `tournament_manager`, et le pilotage à la main avec `essai_rl`.
+- **Rocket League doit rester au premier plan** pendant tout le pilotage : `focus_game()` ne fait plus rien (gardée vide car `connecteur_rl.py` l'appelle encore). Le bot ne change plus de fenêtre tout seul ; si une autre fenêtre passe devant, clics et touches partent ailleurs. `click()` affiche dans la console la fenêtre active et signale si elle change pendant un clic (`[!] la fenêtre active a changé…`), utile pour diagnostiquer. En mode script, après `quit`, il faut recliquer soi-même sur le jeu pendant les 5 s d'attente.
+- **Résolution** : les positions de `positions.json` sont liées à la résolution de la calibration (actuellement `1920x1200`). Utiliser la même valeur partout (`--resolution`, `RL_RESOLUTION`, plein écran fenêtré) ; si elle change, recalibrer. `--steps` permet de ne recalibrer que certaines étapes.
 - Arrêt d'urgence : souris dans le coin haut-gauche (failsafe pyautogui). Ne jamais lancer ce code pour « essayer » : il prend le contrôle de la souris et du clavier.
 - Exception de nommage : les fonctions de ce dossier sont en anglais (`join_private_match`, `follow_match`) avec docstrings et messages en français. Garder le style du fichier modifié.
 
@@ -112,11 +124,13 @@ Spécifique à `bot_tournament_manager` :
 - Seules les équipes `inscrite` dont tous les joueurs ont confirmé participent.
 - Score : `source_resultat` = `bot`, `declarations` (deux équipes d'accord) ou `admin` ; `/set_result_tournament_rl` est toujours prioritaire.
 - Statuts JSON : tournoi `en_cours`/`termine`/`arrete`, round `en_cours`/`terminee`, match `en_attente`/`en_cours`/`termine`/`a_valider`/`annule`. Tout changement de format doit rester compatible avec les fichiers existants (ex. les tournois lancés avant `golden_round` gardent +3 dès le round 1).
+- `/reset_tournament_rl id_tournoi [garder_salon]` (après confirmation « Oui, tout effacer ») : arrête le tournoi s'il tourne (joueurs prévenus), efface `data/tournois/<id>.json`, `data/pp/<id>_ronde_*.json` et `data/archives/<id>_*.json`, supprime le salon de discussion (sauf `garder_salon: True`) et note la remise à zéro dans `LOG_CHANNEL`. Irréversible ; le tournoi redevient proposé à `/start_tournament_rl`. Pour garder les résultats, c'est `/stop_tournament_rl`.
 - Tout doit survivre à un redémarrage : état dans le JSON, boutons en `DynamicItem`.
 - Limites Discord : 2000 caractères par message, 4096 par description d'embed, édition d'une interaction impossible après 15 min (repli en MP), ~1 MP/seconde pour `/mp_all`.
 
 ## Conventions
 
+- Fins de ligne : plusieurs fichiers sont commités en CRLF mais modifiés en LF, donc `git diff` les montre entièrement changés. Utiliser `git diff -w` pour voir les vrais changements, et ne pas changer les fins de ligne d'un fichier sans raison.
 - **Tout en français** (sauf les noms de fonctions de `rl_api_pp_connector`, voir plus haut) : modules, fonctions, variables, classes (`envoyer_a_tous`, `GestionnaireTournois`, `ronde`, `equipe_a`), clés JSON, docstrings, commentaires, logs et textes affichés. Garder cette convention.
 - Docstring de module qui explique le rôle du fichier.
 - Textes Discord : tutoiement, phrases courtes, emoji en tête (✅ ❌ ⏳ 📨 📝 🔒 ⚠️ 👀 ⭐ 🌟), pluriels gérés. Réponses aux admins en éphémère.

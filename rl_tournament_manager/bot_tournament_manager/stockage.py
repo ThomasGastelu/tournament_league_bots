@@ -4,6 +4,9 @@
 - État + résultats d'un tournoi lancé  : data/tournois/<id>.json
 - Parties privées de chaque round       : data/pp/<id>_ronde_<n>.json
 - Anciens tournois relancés             : data/archives/<id>_<date>.json
+
+/reset_tournament_rl efface tous ces fichiers d'un tournoi (supprimer_tournoi), jamais
+le fichier d'inscription.
 """
 
 from __future__ import annotations
@@ -85,10 +88,45 @@ class Stockage:
         os.replace(source, destination)
         return destination
 
+    def charger_archives(self, tournoi_id: str) -> list[dict]:
+        """États archivés d'un tournoi (anciens lancements), du plus récent au plus ancien."""
+        archives = []
+        for chemin in sorted(self.dossier_archives.glob(f"{_verifier_id(tournoi_id)}_*.json"), reverse=True):
+            try:
+                donnees = json.loads(chemin.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(donnees, dict):
+                archives.append(donnees)
+        return archives
+
     # --- Parties privées -------------------------------------------------- #
 
     def chemin_pp(self, tournoi_id: str, numero_ronde: int) -> Path:
         return self.dossier_pp / f"{_verifier_id(tournoi_id)}_ronde_{int(numero_ronde)}.json"
+
+    # --- Remise à zéro (/reset_tournament_rl) ----------------------------- #
+
+    def fichiers_du_tournoi(self, tournoi_id: str) -> list[Path]:
+        """Tous les fichiers que ce bot a écrits pour un tournoi : état (et son .tmp),
+        parties privées de chaque round, archives. Jamais le fichier d'inscription."""
+        tournoi_id = _verifier_id(tournoi_id)
+        # « <id>_ » : un autre tournoi dont l'ID commence pareil (ex. 12 et 123) n'est pas pris.
+        fichiers = [self.dossier_etats / f"{tournoi_id}.json", self.dossier_etats / f"{tournoi_id}.json.tmp"]
+        fichiers += self.dossier_pp.glob(f"{tournoi_id}_*")
+        fichiers += self.dossier_archives.glob(f"{tournoi_id}_*")
+        return sorted(f for f in fichiers if f.is_file())
+
+    def supprimer_tournoi(self, tournoi_id: str) -> list[Path]:
+        """Efface les fichiers de fichiers_du_tournoi() et renvoie ceux qui ont été effacés."""
+        supprimes = []
+        for chemin in self.fichiers_du_tournoi(tournoi_id):
+            try:
+                chemin.unlink()
+            except FileNotFoundError:
+                continue
+            supprimes.append(chemin)
+        return supprimes
 
     # --------------------------------------------------------------------- #
 

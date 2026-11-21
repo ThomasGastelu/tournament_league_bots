@@ -52,6 +52,7 @@ class Config:
     rl: ReglagesRL | None = None
     rappel_clic_pp: float = 180       # rappel au capitaine qui n'a pas cliqué « Partie privée créée »
     attente_clic_pp_max: float = 600  # sans clic, le bot passe quand même dans la partie
+    pp_forcee_zone_2: tuple[str, str] | None = None  # TESTS : (nom, mot de passe) imposés à la zone 2
 
 
 AIDE_TOKEN = (
@@ -131,6 +132,18 @@ def charger_reglages_rl() -> ReglagesRL:
     )
 
 
+def _pp_forcee(nom: str) -> tuple[str, str] | None:
+    """« nom:mot_de_passe » (sans « : », le mot de passe = le nom). Vide : None."""
+    brut = os.getenv(nom, "").strip()
+    if not brut:
+        return None
+    nom_pp, separateur, mot_de_passe = brut.partition(":")
+    nom_pp, mot_de_passe = nom_pp.strip(), mot_de_passe.strip()
+    if not nom_pp:
+        raise ErreurConfig(f"{nom} doit ressembler à nom:mot_de_passe (valeur actuelle : {brut!r}).")
+    return nom_pp, (mot_de_passe if separateur else nom_pp)
+
+
 def charger_config() -> Config:
     load_dotenv(RACINE / ".env")
 
@@ -171,6 +184,7 @@ def charger_config() -> Config:
         pause_entre_rondes=_nombre("PAUSE_ENTRE_RONDES", 60.0, 0),
         rappel_clic_pp=_nombre("RAPPEL_CLIC_PP", 180.0, 0),
         attente_clic_pp_max=_nombre("ATTENTE_CLIC_PP_MAX", 600.0, 0),
+        pp_forcee_zone_2=_pp_forcee("PP_FORCEE_ZONE_2"),
         observateur=observateur,
         simulation_duree_min=duree_min,
         simulation_duree_max=duree_max,

@@ -78,6 +78,10 @@ class Messagerie(Protocol):
         """Donne (`ajouter`) ou retire (`retirer`) l'accès au salon de discussion. True si c'est fait."""
         ...
 
+    async def supprimer_salon_discussion(self, etat: dict, salon_id: str) -> bool:
+        """Supprime un salon de discussion du tournoi (/reset_tournament_rl). True s'il n'existe plus."""
+        ...
+
     async def journal(self, texte: str) -> None:
         """Message d'information dans LOG_CHANNEL, sans mentionner personne."""
         ...
@@ -94,6 +98,7 @@ class GestionnaireTournois:
         pause_entre_rondes: float = 60,
         rappel_clic_pp: float = 180,
         attente_clic_pp_max: float = 600,
+        pp_forcee_zone_2: tuple[str, str] | None = None,
         generer_pp: Callable[[Path, int, Path], list[dict]] = generer_parties,
         rng: random.Random | None = None,
     ) -> None:
@@ -104,6 +109,7 @@ class GestionnaireTournois:
         self.pause_entre_rondes = pause_entre_rondes
         self.rappel_clic_pp = rappel_clic_pp
         self.attente_clic_pp_max = attente_clic_pp_max
+        self.pp_forcee_zone_2 = pp_forcee_zone_2
         self.generer_pp = generer_pp
         self.rng = rng or random.Random()
         self._taches: dict[str, asyncio.Task] = {}
@@ -183,6 +189,61 @@ class GestionnaireTournois:
         for e, joueur in L.joueurs(etat):
             await self.messagerie.mp(etat, joueur["id"], M.mp_arret(etat, e["id"]))
         return etat
+
+    def a_reinitialiser(self, tournoi_id: str, serveur_id: str) -> tuple[dict, list[str], list[Path]]:
+        """Ce que /reset_tournament_rl effacerait : (état le plus récent, salons de discussion, fichiers).
+        L'état peut venir d'une archive si seul un ancien lancement reste."""
+        tournoi_id = tournoi_id.strip()
+        try:
+            fichiers = self.stockage.fichiers_du_tournoi(tournoi_id)
+        except ValueError:
+            fichiers = []
+        actuel = self.stockage.charger_etat(tournoi_id)
+        etats = ([actuel] if actuel else []) + (self.stockage.charger_archives(tournoi_id) if fichiers else [])
+        if not etats or etats[0].get("serveur_id") != serveur_id:
+            raise L.ErreurTournoi(f"Rien à remettre à zéro pour l'ID `{tournoi_id}` sur ce serveur "
+                                  "(aucun tournoi lancé avec cet ID).")
+        return etats[0], L.salons_discussion(etats), fichiers
+
+    async def reinitialiser(self, tournoi_id: str, *, serveur_id: str, par: str, garder_salon: bool = False) -> dict:
+        """/reset_tournament_rl : arrête le tournoi s'il tourne, efface tout ce que ce bot a gardé sur lui
+        (état, parties privées, archives) et supprime ses salons de discussion (sauf `garder_salon`).
+        Le fichier d'inscription n'est jamais touché : le tournoi peut être relancé de zéro."""
+        tournoi_id = tournoi_id.strip()
+        async with self.stockage.verrou(tournoi_id):
+            etat, salons, _ = self.a_reinitialiser(tournoi_id, serveur_id)
+            etait_en_cours = etat.get("statut") == L.EN_COURS
+            if etait_en_cours:
+                # Les tâches qui reliraient l'état avant d'être annulées voient un tournoi arrêté.
+                L.arreter(etat, par=par, maintenant=maintenant())
+                self.stockage.sauvegarder_etat(etat)
+        await self._annuler_taches(tournoi_id)
+        async with self.stockage.verrou(tournoi_id):
+            supprimes = self.stockage.supprimer_tournoi(tournoi_id)
+        self._validations.pop(tournoi_id, None)
+        for cle in [c for c in self._pp_creees if c[0] == tournoi_id]:
+            del self._pp_creees[cle]
+        log.info("Tournoi %s remis à zéro par %s : %s fichier(s) effacé(s)", tournoi_id, par, len(supprimes))
+
+        bilan = {"tournoi_id": tournoi_id, "titre": etat["titre"], "etait_en_cours": etait_en_cours,
+                 "nb_fichiers": len(supprimes), "salons_supprimes": [], "salons_gardes": [], "salons_en_echec": []}
+        for salon_id in salons:
+            if garder_salon:
+                bilan["salons_gardes"].append(salon_id)
+                continue
+            try:
+                ok = await self.messagerie.supprimer_salon_discussion(etat, salon_id)
+            except Exception:
+                log.exception("Tournoi %s : impossible de supprimer le salon de discussion %s", tournoi_id, salon_id)
+                ok = False
+            bilan["salons_supprimes" if ok else "salons_en_echec"].append(salon_id)
+
+        if etait_en_cours:
+            await self.messagerie.annonce(etat, texte=M.texte_reinitialisation(etat, par))
+            for _, joueur in L.joueurs(etat):
+                await self.messagerie.mp(etat, joueur["id"], M.mp_reinitialisation(etat))
+        await self.messagerie.journal(M.texte_reinitialisation(etat, par))
+        return bilan
 
     async def valider_resultat(self, tournoi_id: str, zone: int, gagnant_id: int, score_gagnant: int,
                                score_perdant: int, *, serveur_id: str, par: str) -> tuple[dict, dict]:
@@ -421,6 +482,11 @@ class GestionnaireTournois:
             numero = len(etat["rondes"]) + 1
             chemin = self.stockage.chemin_pp(tournoi_id, numero)
             parties = await asyncio.to_thread(self.generer_pp, self.script_pp, len(affectations), chemin)
+            if self.pp_forcee_zone_2 and len(parties) >= 2:  # TESTS uniquement (PP_FORCEE_ZONE_2)
+                nom_pp, mot_de_passe = self.pp_forcee_zone_2
+                parties[1] = {**parties[1], "nom": nom_pp, "mot_de_passe": mot_de_passe}
+                log.warning("Tournoi %s, round %s : partie privée de la zone 2 FORCÉE par PP_FORCEE_ZONE_2 (%s) "
+                            "— à vider avant un vrai tournoi", tournoi_id, numero, nom_pp)
             ronde = L.nouvelle_ronde(etat, affectations, parties, fichier_pp=chemin.name, maintenant=maintenant())
             self.stockage.sauvegarder_etat(etat)
         log.info("Tournoi %s : round %s/%s lancé", tournoi_id, numero, etat["nombre_de_rondes"])
@@ -794,6 +860,22 @@ class MessagerieDiscord:
             log.warning("Salon de discussion du tournoi %s introuvable (supprimé ?) : accès pas mis à jour.", tournoi_id)
         except (discord.HTTPException, KeyError, TypeError, ValueError) as erreur:
             log.warning("Salon de discussion du tournoi %s : accès pas mis à jour (%s).", tournoi_id, erreur)
+        return False
+
+    async def supprimer_salon_discussion(self, etat: dict, salon_id: str) -> bool:
+        """Supprime le salon (il faut « Gérer les salons » au bot). True s'il n'existe plus."""
+        tournoi_id = etat.get("tournoi_id")
+        try:
+            salon = self.client.get_channel(int(salon_id)) or await self.client.fetch_channel(int(salon_id))
+            await salon.delete(reason=f"Tournoi {etat.get('titre')} remis à zéro")
+            return True
+        except discord.NotFound:
+            return True  # déjà supprimé à la main
+        except discord.Forbidden:
+            log.warning("Salon de discussion %s du tournoi %s pas supprimé : il manque « Gérer les salons » au bot. "
+                        "Supprime-le à la main.", salon_id, tournoi_id)
+        except (discord.HTTPException, TypeError, ValueError) as erreur:
+            log.warning("Salon de discussion %s du tournoi %s pas supprimé (%s).", salon_id, tournoi_id, erreur)
         return False
 
     def _salon_annonces_de(self, etat: dict) -> int | None:

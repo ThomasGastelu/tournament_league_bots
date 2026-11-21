@@ -1,5 +1,5 @@
 """Commandes slash : /start_tournament_rl, /start_tournament_rl_status,
-/stop_tournament_rl, /set_result_tournament_rl et /edit_player_tournament_rl."""
+/stop_tournament_rl, /reset_tournament_rl, /set_result_tournament_rl et /edit_player_tournament_rl."""
 
 from __future__ import annotations
 
@@ -296,6 +296,56 @@ class ConfirmationArret(ui.View):
 
 
 # --------------------------------------------------------------------------- #
+# /reset_tournament_rl
+# --------------------------------------------------------------------------- #
+
+@app_commands.command(name="reset_tournament_rl",
+                      description="Remet un tournoi à zéro : efface ses scores et son état pour le relancer")
+@app_commands.describe(
+    id_tournoi="ID du tournoi",
+    garder_salon="True : garde le salon de discussion (par défaut il est supprimé)",
+)
+@app_commands.autocomplete(id_tournoi=autocomplete_etat)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def reset_tournament_rl(interaction: discord.Interaction, id_tournoi: str, garder_salon: bool = False) -> None:
+    tournoi_id = id_tournoi.strip()
+    try:
+        etat, salons, fichiers = gestionnaire(interaction).a_reinitialiser(tournoi_id, str(interaction.guild_id))
+    except L.ErreurTournoi as erreur:
+        return await repondre(interaction, f"❌ {erreur}")
+    await repondre(interaction, M.confirmation_reinitialisation(etat, len(fichiers), len(salons), garder_salon),
+                   view=ConfirmationReinitialisation(tournoi_id, garder_salon))
+
+
+class ConfirmationReinitialisation(ui.View):
+    def __init__(self, tournoi_id: str, garder_salon: bool) -> None:
+        super().__init__(timeout=120)
+        self.tournoi_id = tournoi_id
+        self.garder_salon = garder_salon
+
+    @ui.button(label="Oui, tout effacer", style=discord.ButtonStyle.danger)
+    async def confirmer(self, interaction: discord.Interaction, _bouton: ui.Button) -> None:
+        await interaction.response.edit_message(content="⏳ Remise à zéro du tournoi…", view=None)
+        try:
+            bilan = await gestionnaire(interaction).reinitialiser(
+                self.tournoi_id, serveur_id=str(interaction.guild_id), par=str(interaction.user.id),
+                garder_salon=self.garder_salon)
+        except L.ErreurTournoi as erreur:
+            return await interaction.edit_original_response(content=f"❌ {erreur}")
+        log.info("/reset_tournament_rl %s fait par %s", self.tournoi_id, interaction.user)
+        texte = M.reponse_reinitialisation(bilan)
+        try:
+            await interaction.edit_original_response(content=texte)
+        except discord.HTTPException:  # commande tapée dans le salon qui vient d'être supprimé
+            await interaction.followup.send(texte, ephemeral=True)
+
+    @ui.button(label="Non", style=discord.ButtonStyle.secondary)
+    async def garder(self, interaction: discord.Interaction, _bouton: ui.Button) -> None:
+        await interaction.response.edit_message(content="👍 Rien n'a été effacé.", view=None)
+
+
+# --------------------------------------------------------------------------- #
 # /set_result_tournament_rl
 # --------------------------------------------------------------------------- #
 
@@ -369,7 +419,7 @@ async def edit_player_tournament_rl(
 
 
 COMMANDES = [start_tournament_rl, start_tournament_rl_status, stop_tournament_rl, set_result_tournament_rl,
-             edit_player_tournament_rl]
+             edit_player_tournament_rl, reset_tournament_rl]
 
 
 async def gerer_erreur(interaction: discord.Interaction, erreur: app_commands.AppCommandError) -> None:

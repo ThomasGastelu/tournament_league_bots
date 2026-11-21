@@ -635,3 +635,12 @@ def arreter(etat: dict, *, par: str, maintenant: str) -> None:
         for match in ronde["matchs"]:
             if match["statut"] != MATCH_TERMINE:
                 match["statut"] = MATCH_ANNULE
+
+
+# --------------------------------------------------------------------------- #
+# Remise à zéro (/reset_tournament_rl)
+# --------------------------------------------------------------------------- #
+
+def salons_discussion(etats: list[dict]) -> list[str]:
+    """IDs des salons de discussion de ces états (lancement actuel et archives), sans doublon, dans l'ordre."""
+    return list(dict.fromkeys(str(e["salon_discussion_id"]) for e in etats if e.get("salon_discussion_id")))

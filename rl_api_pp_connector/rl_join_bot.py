@@ -108,7 +108,32 @@ def normalize(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Souris / clavier
 # ---------------------------------------------------------------------------
+def active_window() -> str:
+    """Titre de la fenêtre au premier plan (Windows), pour comprendre les changements de fenêtre."""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(hwnd, buf, 256)
+        return buf.value or "(sans titre)"
+    except Exception:
+        return "?"
+
+
+def log_active_window(moment: str) -> None:
+    print(f"  [fenêtre active {moment} : {active_window()}]")
+
+
 def click(x: int, y: int) -> None:
+    avant = active_window()
+    _click(x, y)
+    apres = active_window()
+    if apres != avant:
+        print(f"  [!] la fenêtre active a changé pendant le clic en ({x}, {y}) : '{avant}' -> '{apres}'")
+
+
+def _click(x: int, y: int) -> None:
     if pydirectinput:
         pydirectinput.moveTo(x, y)
         time.sleep(0.1)
@@ -273,6 +298,7 @@ def calibrate(path: str, width: int, height: int, countdown: int, only=None) -> 
 # ---------------------------------------------------------------------------
 def join_private_match(loc: Locator, name: str, password: str, delay: float) -> None:
     print(f"Rejoindre la partie privée '{name}'...")
+    log_active_window("avant de rejoindre")
     loc.click_step("play"); time.sleep(delay)
     loc.click_step("private_match"); time.sleep(delay)
     loc.click_step("join_private"); time.sleep(delay)
@@ -280,12 +306,14 @@ def join_private_match(loc: Locator, name: str, password: str, delay: float) -> 
     # Champ nom
     pos = loc.calibrated("name_field")
     if pos:
+        print(f"  -> clic sur 'name_field' en {pos}")
         click(*pos); time.sleep(0.3)
     type_text(name); time.sleep(0.3)
 
     # Champ mot de passe
     pos = loc.calibrated("password_field")
     if pos:
+        print(f"  -> clic sur 'password_field' en {pos}")
         click(*pos); time.sleep(0.3)
     else:
         press("tab"); time.sleep(0.3)  # sans calibration : on suppose Tab = champ suivant
@@ -296,16 +324,75 @@ def join_private_match(loc: Locator, name: str, password: str, delay: float) -> 
     print("Demande envoyée, attente du chargement du match...")
 
 
+# Événements que la Stats API n'envoie que pendant un match.
+MATCH_EVENTS = {"MatchCreated", "MatchInitialized", "CountdownBegin", "RoundStarted",
+                "ClockUpdatedSeconds", "GoalScored", "BallHit", "CrossbarHit", "StatfeedEvent",
+                "MatchEnded", "PodiumStart", "ReplayStart", "ReplayEnd"}
+
+
+def in_match(host: str, port: int, listen: float = 3.0) -> bool:
+    """True si le jeu est DANS un match.
+
+    Attention : le port de la Stats API accepte les connexions dès que le jeu tourne,
+    même au menu principal. Une connexion réussie ne prouve donc rien : il faut
+    recevoir des données de match (UpdateState avec des joueurs ou des équipes,
+    ou un événement de match).
+    """
+    try:
+        sock = socket.create_connection((host, port), timeout=2)
+    except OSError:
+        return False
+    decoder = json.JSONDecoder()
+    buf = ""
+    end = time.time() + listen
+    with sock:
+        sock.settimeout(0.5)
+        while time.time() < end:
+            try:
+                chunk = sock.recv(65536)
+            except socket.timeout:
+                continue
+            except OSError:
+                return False
+            if not chunk:
+                return False
+            buf += chunk.decode("utf-8", errors="ignore")
+            while True:
+                buf = buf.lstrip()
+                if not buf:
+                    break
+                try:
+                    msg, fin = decoder.raw_decode(buf)
+                except json.JSONDecodeError:
+                    if len(buf) > 1_000_000:
+                        buf = ""  # flux illisible : on repart de zéro
+                    break  # message incomplet : on attend la suite
+                buf = buf[fin:]
+                if not isinstance(msg, dict):
+                    continue
+                event = msg.get("Event")
+                if event in MATCH_EVENTS:
+                    return True
+                if event == "UpdateState":
+                    data = parse_data(msg)
+                    if data.get("Players") or (data.get("Game") or {}).get("Teams"):
+                        return True
+    return False
+
+
 def wait_for_match(host: str, port: int, timeout: float):
-    """Attend que la Stats API réponde : preuve qu'on est bien dans le match."""
+    """Attend d'être vraiment dans le match (données de match reçues), puis renvoie
+    une connexion neuve à la Stats API (qui commence au début d'un message)."""
     end = time.time() + timeout
     while time.time() < end:
-        try:
-            sock = socket.create_connection((host, port), timeout=3)
-            sock.settimeout(None)
-            return sock
-        except OSError:
-            time.sleep(2)
+        if in_match(host, port, listen=min(3.0, max(0.5, end - time.time()))):
+            try:
+                sock = socket.create_connection((host, port), timeout=3)
+                sock.settimeout(None)
+                return sock
+            except OSError:
+                pass
+        time.sleep(1)
     return None
 
 
@@ -420,25 +507,12 @@ def follow_match(sock: socket.socket, output: str, quit_event: threading.Event,
 
 
 def focus_game() -> None:
-    """Remet Rocket League au premier plan (sinon les touches partent dans le terminal)."""
-    if not gw:
-        print("pygetwindow absent : remets le jeu au premier plan toi-même.")
-        time.sleep(3)
-        return
-    wins = [w for w in gw.getWindowsWithTitle("Rocket League") if w.title.strip()]
-    if not wins:
-        print("Fenêtre Rocket League introuvable : remets le jeu au premier plan toi-même.")
-        time.sleep(3)
-        return
-    win = wins[0]
-    try:
-        win.activate()
-    except Exception:
-        try:  # astuce Windows quand activate() est refusé
-            win.minimize(); time.sleep(0.3); win.restore()
-        except Exception:
-            pass
-    time.sleep(1)
+    """Ne fait rien : Rocket League est censé être TOUJOURS au premier plan.
+
+    Le bot ne change plus de fenêtre tout seul. Garde Rocket League devant pendant
+    que le bot tourne, sinon les clics et les touches partent dans une autre fenêtre.
+    (Fonction gardée car tournament_manager l'appelle.)
+    """
 
 
 def leave_match(loc: Locator, delay: float, wait: float) -> None:
@@ -456,12 +530,8 @@ def leave_match(loc: Locator, delay: float, wait: float) -> None:
 
 
 def stats_api_ouverte(host: str, port: int) -> bool:
-    """True si la Stats API répond, c'est-à-dire si le jeu est dans un match."""
-    try:
-        socket.create_connection((host, port), timeout=1).close()
-        return True
-    except OSError:
-        return False
+    """True si le jeu est dans un match (le port seul ne suffit pas : voir in_match)."""
+    return in_match(host, port, listen=2.0)
 
 
 # Actions enregistrées par --calibrate-back-to-menu (dans positions.json, avec les autres étapes) :
