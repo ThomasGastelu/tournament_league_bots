@@ -19,7 +19,7 @@ from .outils import demarrer
 from .outils import ADMIN, SALON, SERVEUR, FausseMessagerie, ecrire_inscription, faux_pp, tournoi_inscription
 
 TID = "1571169059024928818"
-TOUTES = dict(manage_channels=True, view_channel=True, send_messages=True, embed_links=True,
+TOUTES = dict(manage_channels=True, manage_roles=True, view_channel=True, send_messages=True, embed_links=True,
               attach_files=True, read_message_history=True)
 
 
@@ -214,6 +214,13 @@ def test_start_refuse_si_le_role_du_bot_n_a_pas_la_permission():
     assert "Paramètres du serveur > **Rôles** > **tournament_manager**" in message
     assert "https://discord.com/oauth2/authorize?client_id=1" in message
     assert "me retire" not in message
+
+
+def test_init_refuse_sans_gerer_les_roles():
+    # Sans « Gérer les rôles », le bot ne pourrait pas donner l'accès au salon aux équipes montées de la liste d'attente.
+    serveur = FauxServeur(set(), categorie=FausseCategorie(**TOUTES), **{**TOUTES, "manage_roles": False})
+    message = probleme_salon_discussion(interaction(serveur), TID)
+    assert "mon rôle n'a pas **Gérer les rôles**" in message
 
 
 def test_start_accepte_si_le_bot_a_tout():

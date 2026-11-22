@@ -147,7 +147,7 @@ Zone 1 ⭐ : ✅ caca 1 - 2 tomatoTown
 - son ID est gardé dans `data/salons/<id>.json`, puis dans le JSON du tournoi (`salon_discussion_id`) au `/start_tournament_rl`. Sans `/start_tournament_init` avant, `/start_tournament_rl` refuse de lancer le tournoi. `/start_tournament_init` refuse de créer un deuxième salon tant que le premier existe ;
 - à la fin ou à l'arrêt du tournoi, le salon reste : supprime-le à la main quand tu veux. Un tournoi relancé garde le même salon. `/reset_tournament_rl` le supprime (sauf avec `garder_salon: True`).
 
-Il faut au bot **Gérer les salons** et **Joindre des fichiers** (en plus des permissions d'annonce) sur le serveur, et que la catégorie ne les lui retire pas. Sinon `/start_tournament_init` refuse de créer le salon et dit quoi cocher, et où (rôle du bot sur le serveur, ou catégorie).
+Il faut au bot **Gérer les salons**, **Gérer les rôles** (pour donner l'accès au salon aux équipes montées de la liste d'attente et aux remplaçants, et le retirer aux équipes qui perdent leur place) et **Joindre des fichiers** (en plus des permissions d'annonce) sur le serveur, et que la catégorie ne les lui retire pas. Sinon `/start_tournament_init` refuse de créer le salon et dit quoi cocher, et où (rôle du bot sur le serveur, ou catégorie).
 
 **Catégorie en lecture seule** (les membres ne peuvent pas écrire) : elle retire aussi ces permissions au bot, et réinviter le bot n'y change rien. Clic droit sur la catégorie > **Modifier la catégorie** > **Permissions** > rôle du bot > mets en ✅ vert **Gérer les salons**, **Envoyer des messages**, **Intégrer des liens** et **Joindre des fichiers**. Les membres restent bloqués ; seul le bot reçoit ces droits.
 
@@ -287,9 +287,9 @@ Le bot n'utilise plus `rl_api_pp_connector` : les anciens réglages `OBSERVATEUR
 1. https://discord.com/developers/applications > **New Application** (nom : `tournament_manager`). Il faut une **autre application** que le bot d'inscription : deux bots avec le même token écraseraient leurs commandes.
 2. Onglet **Bot** > **Reset Token** > copie le token.
 3. Invite le bot sur ton serveur (remplace `APPLICATION_ID`) :
-   `https://discord.com/oauth2/authorize?client_id=APPLICATION_ID&scope=bot+applications.commands&permissions=117776`
+   `https://discord.com/oauth2/authorize?client_id=APPLICATION_ID&scope=bot+applications.commands&permissions=268553232`
    Dans le salon des annonces, le salon des résultats et `LOG_CHANNEL`, il lui faut **Voir le salon**, **Envoyer des messages** et **Intégrer des liens**.
-   Pour créer le salon de discussion de chaque tournoi, il lui faut aussi **Gérer les salons**, **Joindre des fichiers** et **Voir les anciens messages** (déjà dans le lien). Si le bot a été invité avec l'ancien lien (`permissions=84992`), réinvite-le avec celui-ci ou ajoute ces permissions à son rôle.
+   Pour créer le salon de discussion de chaque tournoi, il lui faut aussi **Gérer les salons**, **Gérer les rôles**, **Joindre des fichiers** et **Voir les anciens messages** (déjà dans le lien). Si le bot a été invité avec un ancien lien (`permissions=84992` ou `117776`), réinvite-le avec celui-ci ou ajoute ces permissions à son rôle (Paramètres du serveur > Rôles > rôle du bot).
    Facultatif : **Gérer les rôles**, pour que `/edit_player_tournament_rl` ajoute lui-même un remplaçant au salon de discussion (sinon tu le fais à la main). Le lien ne la contient pas : ajoute-la au rôle du bot si tu veux.
 
 Aucun « Privileged Gateway Intent » n'est nécessaire.

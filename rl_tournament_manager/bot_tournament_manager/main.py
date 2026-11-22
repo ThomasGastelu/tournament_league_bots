@@ -21,9 +21,10 @@ from .stockage import Stockage
 
 log = logging.getLogger("tournament_manager")
 
-# Voir les salons, Envoyer des messages, Intégrer des liens, Voir l'historique,
-# Gérer les salons et Joindre des fichiers (salon de discussion de chaque tournoi).
-PERMISSIONS = 117776
+# Voir les salons, Envoyer des messages, Intégrer des liens, Voir l'historique, Gérer les salons,
+# Joindre des fichiers et Gérer les rôles (salon de discussion de chaque tournoi : création, puis accès
+# des équipes montées de la liste d'attente et des remplaçants).
+PERMISSIONS = 268553232
 # Loggers dont les avertissements et erreurs sont copiés dans LOG_CHANNEL.
 LOGGERS_JOURNAL = ("bot_tournament_manager", "tournament_manager")
 

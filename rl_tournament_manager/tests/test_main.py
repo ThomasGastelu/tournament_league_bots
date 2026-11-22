@@ -34,4 +34,4 @@ def test_bot_pas_invite_sur_le_serveur_donne_le_lien(tmp_path):
     message = asyncio.run(scenario())
     assert "1540386765054148639" in message
     assert ("https://discord.com/oauth2/authorize?client_id=123456789"
-            "&scope=bot+applications.commands&permissions=117776") in message
+            "&scope=bot+applications.commands&permissions=268553232") in message

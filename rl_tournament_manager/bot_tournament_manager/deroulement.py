@@ -1104,12 +1104,14 @@ class MessagerieDiscord:
             if ajouter:
                 permissions[discord.Object(id=int(ajouter), type=discord.Member)] = discord.PermissionOverwrite(
                     **dict.fromkeys(DROITS_PARTICIPANT, True))
-            await salon.edit(overwrites=permissions, reason=f"Tournoi {etat.get('titre')} : remplacement d'un joueur")
+            await salon.edit(overwrites=permissions, reason=f"Tournoi {etat.get('titre')} : accès au salon")
             return True
         except discord.Forbidden:
+            a_faire = (f"ajoute <@{ajouter}>" if ajouter else "") + (" et " if ajouter and retirer else "") + (
+                f"retire <@{retirer}>" if retirer else "")
             log.warning("Salon de discussion du tournoi %s : accès pas mis à jour, il manque « Gérer les rôles » au "
-                        "bot. Ajoute le remplaçant <@%s> à la main (clic droit sur le salon > Modifier le salon > "
-                        "Permissions).", tournoi_id, ajouter)
+                        "bot (Paramètres du serveur > Rôles > rôle du bot). En attendant, %s à la main (clic droit sur "
+                        "le salon > Modifier le salon > Permissions).", tournoi_id, a_faire)
         except discord.NotFound:
             log.warning("Salon de discussion du tournoi %s introuvable (supprimé ?) : accès pas mis à jour.", tournoi_id)
         except (discord.HTTPException, KeyError, TypeError, ValueError) as erreur:
@@ -1202,9 +1204,12 @@ DROITS_PARTICIPANT = ("view_channel", "send_messages", "read_message_history", "
 # Droits du bot dans ce salon.
 DROITS_BOT = ("view_channel", "send_messages", "embed_links", "read_message_history", "attach_files")
 # Pour créer le salon, le bot doit avoir « Gérer les salons » et chaque droit qu'il donne
-# (Discord refuse qu'il accorde un droit qu'il n'a pas lui-même).
+# (Discord refuse qu'il accorde un droit qu'il n'a pas lui-même). « Gérer les rôles » : pour donner l'accès
+# au salon aux équipes montées de la liste d'attente (et aux remplaçants), et le retirer à celles qui
+# perdent leur place, une fois le salon créé.
 PERMISSIONS_DISCUSSION = {
     "manage_channels": "Gérer les salons",
+    "manage_roles": "Gérer les rôles",
     "view_channel": "Voir les salons",
     "send_messages": "Envoyer des messages",
     "embed_links": "Intégrer des liens",
