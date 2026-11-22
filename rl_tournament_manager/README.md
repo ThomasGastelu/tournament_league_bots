@@ -25,7 +25,7 @@ Les joueurs n'ont pas de commande à taper, ils ont des boutons dans leurs MP :
 **Zones** : il y a une zone par match, soit `nombre d'équipes / 2` (8 équipes → 4 zones). La zone 1 est la plus basse, la dernière est la **zone haute ⭐**.
 
 1. **Round 1** : les équipes sont tirées au hasard et placées deux par deux dans les zones.
-2. Le bot génère une partie privée par zone avec `generer_pp_names.py -n <nombre de zones>` (le match 1 va en zone 1, etc.).
+2. Le bot donne une partie privée par zone : **tomato_A** en zone 1, **tomato_B** en zone 2, **tomato_C** en zone 3, etc. Le mot de passe est le même que le nom, et chaque round réutilise les mêmes noms (au-delà de 26 zones : tomato_AA, tomato_AB…).
 3. **Tous les matchs se jouent en même temps.** Dès le début du round, pour chaque zone :
    - le capitaine de l'équipe A reçoit : « Vous devez créer la partie privée avec le nom = … et le mot de passe = … », avec le bouton **✅ Partie privée créée** ;
    - les autres joueurs des deux équipes reçoivent leur match, **sans le nom ni le mot de passe** : ils les reçoivent seulement quand le capitaine a créé la partie (MP « ✅ … a créé la partie privée ») ;
@@ -109,6 +109,16 @@ Le fichier d'inscription (`../rl_bot_ppname_creator/data/tournois/<id>.json`) n'
 - l'annonce de l'arrêt du tournoi ;
 - le classement final.
 
+**Salon des résultats** (`SALON_RESULTATS`, par exemple `#resultat-match` ; sinon le salon des annonces) — public. À la fin de chaque round, le bot y poste le récap :
+```
+🎯 Round 3
+Zone 1 ⭐ : ✅ caca 1 - 2 tomatoTown (déclaré par les équipes)
+
+📊 Classement
+🥇 tomatoTown — 6 points (2V-1D, diff +2)
+🥈 caca — 3 points (1V-2D, diff -2)
+```
+
 **Salon de discussion** (un par tournoi, créé par `/start_tournament_rl`) — privé :
 - nom `💬-<titre-du-tournoi>`, dans la **même catégorie** que le salon où le tournoi a été créé avec le bot d'inscription (à la racine du serveur si ce salon n'est pas dans une catégorie) ;
 - visible seulement par les **joueurs des équipes participantes**, les **admins** (rôles avec « Gérer le serveur » ou « Administrateur »), l'admin qui a lancé le tournoi et le bot. Ils peuvent y écrire et y envoyer des fichiers (captures de score) ;
@@ -137,7 +147,7 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
 |---|---|
 | `../rl_bot_ppname_creator/data/tournois/<id>.json` | Inscriptions (lues, jamais modifiées). Seules les équipes `inscrite` dont tous les joueurs ont confirmé participent. |
 | `data/tournois/<id>.json` | **État et résultats** : équipes (points, victoires, buts, historique), rounds (`rondes`), matchs, scores, déclarations. |
-| `data/pp/<id>_ronde_<n>.json` | Parties privées de chaque round (sortie de `generer_pp_names.py`). |
+| `data/pp/<id>_ronde_<n>.json` | Parties privées de chaque round (tomato_A, tomato_B…). |
 | `data/archives/` | Ancien fichier de résultats quand on relance un tournoi déjà terminé ou arrêté. |
 
 `/reset_tournament_rl` efface les trois fichiers d'un tournoi (`data/tournois/`, `data/pp/`, `data/archives/`), jamais son fichier d'inscription.
@@ -179,7 +189,7 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
       "matchs": [
         {
           "zone": 3,
-          "pp": { "nom": "tomato_agntyp", "mot_de_passe": "tomato_agntyp" },
+          "pp": { "nom": "tomato_C", "mot_de_passe": "tomato_C" },
           "equipe_a": 1, "equipe_b": 2,
           "statut": "termine",
           "score": { "equipe_a": 3, "equipe_b": 1 },
@@ -254,7 +264,7 @@ Le bot n'utilise plus `rl_api_pp_connector` : les anciens réglages `OBSERVATEUR
 2. Onglet **Bot** > **Reset Token** > copie le token.
 3. Invite le bot sur ton serveur (remplace `APPLICATION_ID`) :
    `https://discord.com/oauth2/authorize?client_id=APPLICATION_ID&scope=bot+applications.commands&permissions=117776`
-   Dans le salon des annonces et dans `LOG_CHANNEL`, il lui faut **Voir le salon**, **Envoyer des messages** et **Intégrer des liens**.
+   Dans le salon des annonces, le salon des résultats et `LOG_CHANNEL`, il lui faut **Voir le salon**, **Envoyer des messages** et **Intégrer des liens**.
    Pour créer le salon de discussion de chaque tournoi, il lui faut aussi **Gérer les salons**, **Joindre des fichiers** et **Voir les anciens messages** (déjà dans le lien). Si le bot a été invité avec l'ancien lien (`permissions=84992`), réinvite-le avec celui-ci ou ajoute ces permissions à son rôle.
    Facultatif : **Gérer les rôles**, pour que `/edit_player_tournament_rl` ajoute lui-même un remplaçant au salon de discussion (sinon tu le fais à la main). Le lien ne la contient pas : ajoute-la au rôle du bot si tu veux.
 
@@ -265,6 +275,7 @@ Remplis le fichier `.env` (modèle : `.env.example`) :
 - `DISCORD_TOKEN` : le token du bot ;
 - `GUILD_ID` : l'ID de ton serveur ;
 - `SALON_ANNONCES` (facultatif) : l'ID du salon des annonces ;
+- `SALON_RESULTATS` (facultatif) : l'ID du salon où le bot poste le récap de chaque round (ex. `#resultat-match`) ;
 - `LOG_CHANNEL` (conseillé) : l'ID du salon privé des alertes.
 
 Pour copier un ID : Paramètres Discord > Avancés > **Mode développeur**, puis clic droit sur le salon > **Copier l'identifiant du salon**.

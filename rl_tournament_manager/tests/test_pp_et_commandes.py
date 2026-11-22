@@ -1,21 +1,19 @@
-from pathlib import Path
-
-import pytest
+import json
 
 from bot_tournament_manager.commandes import COMMANDES
-from bot_tournament_manager.pp import generer_parties
-
-SCRIPT = Path(__file__).resolve().parents[2] / "rl_bot_ppname_creator" / "generer_pp_names.py"
+from bot_tournament_manager.pp import generer_parties, lettres
 
 
-@pytest.mark.skipif(not SCRIPT.exists(), reason="rl_bot_ppname_creator absent")
-def test_vrai_script_generer_pp_names(tmp_path):
+def test_parties_tomato_une_lettre_par_zone(tmp_path):
     sortie = tmp_path / "pp" / "1_ronde_1.json"
-    parties = generer_parties(SCRIPT, 4, sortie)
-    assert [p["match"] for p in parties] == [1, 2, 3, 4]
-    assert all(p["nom"].startswith("tomato_") and p["nom"] == p["mot_de_passe"] for p in parties)
-    assert len({p["nom"] for p in parties}) == 4
-    assert sortie.exists()
+    parties = generer_parties(4, sortie)
+    assert parties == [{"match": i, "nom": f"tomato_{l}", "mot_de_passe": f"tomato_{l}"}
+                       for i, l in enumerate("ABCD", start=1)]
+    assert json.loads(sortie.read_text(encoding="utf-8"))["parties"] == parties
+
+
+def test_lettres_apres_z():
+    assert [lettres(n) for n in (1, 2, 26, 27, 28, 52, 53)] == ["A", "B", "Z", "AA", "AB", "AZ", "BA"]
 
 
 def test_noms_des_commandes():

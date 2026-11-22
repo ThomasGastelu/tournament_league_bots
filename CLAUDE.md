@@ -8,7 +8,7 @@ Ce fichier guide Claude (et tout contributeur) dans ce dépôt.
 
 | Dossier | Paquet (`python -m …`) | Rôle |
 |---|---|---|
-| `rl_bot_ppname_creator/` | `bot_inscription_manager` | Inscriptions aux tournois (`/tournoi_rl*`), liste d'attente, confirmations des coéquipiers. Contient aussi le script `generer_pp_names.py` (noms / mots de passe des parties privées). |
+| `rl_bot_ppname_creator/` | `bot_inscription_manager` | Inscriptions aux tournois (`/tournoi_rl*`), liste d'attente, confirmations des coéquipiers. Contient aussi le script `generer_pp_names.py` (noms / mots de passe aléatoires de parties privées), que `tournament_manager` n'utilise plus. |
 | `rl_tournament_manager/` | `bot_tournament_manager` | Fait jouer un tournoi inscrit : zones, rounds, MP avec les parties privées, demande des scores aux joueurs (`DELAI_DECLARATION` après le clic « Partie privée créée »), déclarations, classement (`/start_tournament_rl`, `/stop_…`, `/reset_…`, `/set_result_…`, `/edit_player_…`). |
 | `rl_bot_mp/` | `bot_mp` | `/mp_all` : envoie un MP à tous les membres du serveur (admins). Indépendant des deux autres. |
 | `rl_bot_ticket/` | `bot_ticket` | Tickets de support : `/ticket_panel` publie le panneau « Support » ; le bouton « 🎫 Créer un ticket » ouvre un salon privé (auteur + `ROLES_STAFF`) selon la catégorie choisie. Indépendant des autres, sans fichier `data/`. |
@@ -22,12 +22,11 @@ Dépôt Git : `ThomasGastelu/tournament_league_bots`, branche `main`. L'utilisat
 bot_inscription_manager  ──écrit──▶  rl_bot_ppname_creator/data/tournois/<id>.json
                                                    │ (lu, jamais modifié)
 bot_tournament_manager   ──lit─────────────────────┘
-                         ──appelle──▶ rl_bot_ppname_creator/generer_pp_names.py -n <zones>
                          ──écrit────▶ rl_tournament_manager/data/{tournois,pp,archives}/
 ```
 
-- Les chemins sont réglés dans le `.env` de `tournament_manager` (`DOSSIER_INSCRIPTIONS`, `SCRIPT_PP`), relatifs à `rl_tournament_manager/`.
-- Changer le format du JSON d'inscription ou la sortie de `generer_pp_names.py` impacte `tournament_manager` : vérifier `stockage.py`, `pp.py` et leurs tests des deux côtés.
+- Les chemins sont réglés dans le `.env` de `tournament_manager` (`DOSSIER_INSCRIPTIONS`), relatifs à `rl_tournament_manager/`. Salons : `SALON_ANNONCES`, `LOG_CHANNEL` et `SALON_RESULTATS` (récap de chaque round, ex. `#resultat-match`).
+- Changer le format du JSON d'inscription impacte `tournament_manager` : vérifier `stockage.py` et ses tests des deux côtés.
 - Une fois lancé, `tournament_manager` a copié titre et équipes : les modifications d'inscription ne s'appliquent plus au tournoi en cours.
 - `/reset_tournament_rl` (remise à zéro) efface uniquement les fichiers de `rl_tournament_manager/data/` du tournoi (`Stockage.fichiers_du_tournoi` : état, pp, archives) et supprime ses salons de discussion ; il ne touche jamais au JSON d'inscription.
 
@@ -95,7 +94,8 @@ Spécifique à `bot_tournament_manager` :
 - `simulation.py` : mode `SIMULATION=1` ; `Simulation` « clique » et déclare les scores en passant par `signaler_pp_creee` / `declarer_score` (branchée sur `GestionnaireTournois(simulation=…)`, appelée après les MP du match et après les MP de déclaration).
 - `declaration.py` : boutons « ✅ Partie privée créée » et « 📝 Déclarer le score » (`DynamicItem`, custom_id = tournoi/round/zone/équipe).
 - `journal.py` : recopie avertissements et erreurs dans `LOG_CHANNEL` (regroupés ; `extra=HORS_JOURNAL` pour ne pas boucler).
-- `pp.py` : appelle `generer_pp_names.py`.
+- `pp.py` : parties privées `tomato_A`, `tomato_B`… (une lettre par zone, mot de passe = nom), écrites dans `data/pp/`.
+- Fin de round : `messagerie.resultats()` poste le récap (`M.embeds_resultats_ronde`) dans `SALON_RESULTATS`, sinon dans le salon des annonces.
 
 ## Tests
 

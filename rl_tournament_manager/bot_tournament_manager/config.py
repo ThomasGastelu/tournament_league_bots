@@ -22,10 +22,10 @@ class Config:
     serveur_id: int | None
     salon_annonces: int | None
     dossier_inscriptions: Path
-    script_pp: Path
     dossier_donnees: Path
     pause_entre_rondes: float
     log_channel: int | None = None
+    salon_resultats: int | None = None  # SALON_RESULTATS : récap de chaque round (ex. #resultat-match)
     rappel_clic_pp: float = 180       # rappel au capitaine qui n'a pas cliqué « Partie privée créée »
     attente_clic_pp_max: float = 600  # sans clic, le délai avant la demande de score démarre quand même
     delai_declaration: float = 360    # après le clic : attente avant le MP « Déclarer le score »
@@ -124,16 +124,12 @@ def charger_config() -> Config:
     if not dossier_inscriptions.is_dir():
         raise ErreurConfig(f"Dossier des inscriptions introuvable : {dossier_inscriptions} "
                            "(DOSSIER_INSCRIPTIONS dans le .env).")
-    script_pp = _chemin("SCRIPT_PP", "../rl_bot_ppname_creator/generer_pp_names.py")
-    if not script_pp.is_file():
-        raise ErreurConfig(f"Script des parties privées introuvable : {script_pp} (SCRIPT_PP dans le .env).")
 
     return Config(
         token=token,
         serveur_id=int(serveur_id) if serveur_id else None,
         salon_annonces=_id_salon("SALON_ANNONCES"),
         dossier_inscriptions=dossier_inscriptions,
-        script_pp=script_pp,
         dossier_donnees=RACINE / "data",
         pause_entre_rondes=_nombre("PAUSE_ENTRE_RONDES", 60.0, 0),
         rappel_clic_pp=_nombre("RAPPEL_CLIC_PP", 180.0, 0),
@@ -145,4 +141,5 @@ def charger_config() -> Config:
         simulation_proba_desaccord=_nombre("SIMULATION_PROBA_DESACCORD", 0.0, 0, 1),
         pp_forcee_zone_2=_pp_forcee("PP_FORCEE_ZONE_2"),
         log_channel=_id_salon("LOG_CHANNEL"),
+        salon_resultats=_id_salon("SALON_RESULTATS"),
     )

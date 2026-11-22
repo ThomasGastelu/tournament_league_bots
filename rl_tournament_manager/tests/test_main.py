@@ -11,7 +11,7 @@ from bot_tournament_manager.main import BotTournoi
 def config(tmp_path) -> Config:
     return Config(
         token="a.b.c", serveur_id=1540386765054148639, salon_annonces=None, dossier_inscriptions=tmp_path,
-        script_pp=tmp_path / "generer_pp_names.py", dossier_donnees=tmp_path / "data",
+        dossier_donnees=tmp_path / "data",
         pause_entre_rondes=0,
     )
 

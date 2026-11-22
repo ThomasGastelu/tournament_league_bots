@@ -26,8 +26,7 @@ def creer(tmp_path: Path, nb_equipes: int, *, delai: float = 0, declaration_auto
     ecrire_inscription(tmp_path / "inscriptions", tournoi_inscription(nb_equipes, TID))
     stockage = Stockage(tmp_path / "inscriptions", tmp_path / "data")
     messagerie = FausseMessagerie(clic_auto=clic_auto, declaration_auto=declaration_auto)
-    gestionnaire = GestionnaireTournois(stockage, messagerie, script_pp=Path("inutile.py"),
-                                        pause_entre_rondes=0, rappel_clic_pp=rappel, attente_clic_pp_max=attente_max,
+    gestionnaire = GestionnaireTournois(stockage, messagerie, pause_entre_rondes=0, rappel_clic_pp=rappel, attente_clic_pp_max=attente_max,
                                         delai_declaration=delai, generer_pp=faux_pp, rng=random.Random(graine))
     messagerie.gestionnaire = gestionnaire
     return gestionnaire, stockage, messagerie
@@ -83,6 +82,13 @@ def test_tournoi_complet_8_equipes(tmp_path):
     assert "est terminé" in textes[-1]
     assert all(m["source_resultat"] == L.SOURCE_DECLARATIONS for r in etat["rondes"] for m in r["matchs"])
     assert all(m["chrono_declaration"] == m["pp_creee_le"] for r in etat["rondes"] for m in r["matchs"])
+
+    # Récap de chaque round (scores et classement) dans le salon des résultats.
+    assert len(messagerie.resultats_rondes) == 3
+    for numero, embeds in enumerate(messagerie.resultats_rondes, start=1):
+        texte = " ".join((e.title or "") + " " + (e.description or "") for e in embeds)
+        assert f"🎯 Round {numero}**" in texte and "📊 Classement" in texte
+        assert texte.count("*(déclaré par les équipes)*") == 4 and "Zone 4 ⭐" in texte
 
     # Salon : une annonce par ronde + le classement final. Aucune alerte.
     assert len(messagerie.annonces) == 4

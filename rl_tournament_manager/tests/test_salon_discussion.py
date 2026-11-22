@@ -233,7 +233,7 @@ def gestionnaire_test(tmp_path: Path, messagerie: FausseMessagerie) -> tuple[Ges
     ecrire_inscription(tmp_path / "inscriptions", tournoi_inscription(4, TID))
     stockage = Stockage(tmp_path / "inscriptions", tmp_path / "data")
     messagerie.declaration_auto = True
-    g = GestionnaireTournois(stockage, messagerie, script_pp=Path("inutile.py"), pause_entre_rondes=0,
+    g = GestionnaireTournois(stockage, messagerie, pause_entre_rondes=0,
                              delai_declaration=0, generer_pp=faux_pp, rng=random.Random(1))
     messagerie.gestionnaire = g
     return g, stockage

@@ -6,7 +6,7 @@ là où ils en étaient.
 
 Pour chaque round :
   1. tirage (round 1) ou rotation des zones (rounds suivants) ;
-  2. parties privées générées par generer_pp_names.py ;
+  2. parties privées tomato_A, tomato_B… (une lettre par zone, voir pp.py) ;
   3. tous les matchs se jouent en même temps : MP au capitaine de l'équipe A
      (créer la partie, bouton « Partie privée créée ») et aux autres joueurs (la
      rejoindre) ;
@@ -17,7 +17,8 @@ Pour chaque round :
   5. délai passé : MP aux joueurs pour qu'ils déclarent le score (bouton). Le résultat
      est validé quand les deux équipes déclarent le même score ; un admin peut toujours
      trancher avec /set_result_tournament_rl ;
-  6. quand toutes les zones ont un score : pause, puis round suivant.
+  6. quand toutes les zones ont un score : récap du round (scores et classement) dans le salon
+     des résultats (SALON_RESULTATS), pause, puis round suivant.
 """
 
 from __future__ import annotations
@@ -88,6 +89,10 @@ class Messagerie(Protocol):
         """Message d'information dans LOG_CHANNEL, sans mentionner personne."""
         ...
 
+    async def resultats(self, etat: dict, embeds: list[discord.Embed]) -> None:
+        """Récap d'un round terminé dans le salon des résultats (SALON_RESULTATS)."""
+        ...
+
 
 class GestionnaireTournois:
     def __init__(
@@ -95,19 +100,17 @@ class GestionnaireTournois:
         stockage: Stockage,
         messagerie: Messagerie,
         *,
-        script_pp: Path,
         pause_entre_rondes: float = 60,
         rappel_clic_pp: float = 180,
         attente_clic_pp_max: float = 600,
         delai_declaration: float = 360,
         pp_forcee_zone_2: tuple[str, str] | None = None,
-        generer_pp: Callable[[Path, int, Path], list[dict]] = generer_parties,
+        generer_pp: Callable[[int, Path], list[dict]] = generer_parties,
         rng: random.Random | None = None,
         simulation: Simulation | None = None,
     ) -> None:
         self.stockage = stockage
         self.messagerie = messagerie
-        self.script_pp = Path(script_pp)
         self.pause_entre_rondes = pause_entre_rondes
         self.rappel_clic_pp = rappel_clic_pp
         self.attente_clic_pp_max = attente_clic_pp_max
@@ -479,7 +482,7 @@ class GestionnaireTournois:
                 affectations = L.premier_tirage([e["id"] for e in etat["equipes"].values()], self.rng)
             numero = len(etat["rondes"]) + 1
             chemin = self.stockage.chemin_pp(tournoi_id, numero)
-            parties = await asyncio.to_thread(self.generer_pp, self.script_pp, len(affectations), chemin)
+            parties = await asyncio.to_thread(self.generer_pp, len(affectations), chemin)
             if self.pp_forcee_zone_2 and len(parties) >= 2:  # TESTS uniquement (PP_FORCEE_ZONE_2)
                 nom_pp, mot_de_passe = self.pp_forcee_zone_2
                 parties[1] = {**parties[1], "nom": nom_pp, "mot_de_passe": mot_de_passe}
@@ -518,11 +521,14 @@ class GestionnaireTournois:
                 if etat is None or etat["statut"] != L.EN_COURS:
                     return
                 ronde = L.trouver_ronde(etat, numero)
-                if L.ronde_complete(ronde):
+                termine = L.ronde_complete(ronde)
+                if termine:
                     L.terminer_ronde(ronde, maintenant())
                     self.stockage.sauvegarder_etat(etat)
-                    log.info("Tournoi %s : round %s terminé", tournoi_id, numero)
-                    return
+            if termine:
+                log.info("Tournoi %s : round %s terminé", tournoi_id, numero)
+                await self.messagerie.resultats(etat, M.embeds_resultats_ronde(etat, ronde))
+                return
             await validation.wait()
 
     async def _jouer_match(self, tournoi_id: str, numero: int, zone: int) -> None:
@@ -706,13 +712,16 @@ class MessagerieDiscord:
     poste dans le salon où il a été créé avec le bot d'inscription.
     `salon_logs` (LOG_CHANNEL du .env) : alertes et problèmes du bot. Sans lui, les alertes partent
     en MP à l'admin qui a lancé le tournoi.
+    `salon_resultats` (SALON_RESULTATS du .env, ex. #resultat-match) : récap de chaque round terminé.
+    Sans lui, le récap part dans le salon des annonces.
     """
 
     def __init__(self, client: discord.Client, salon_annonces: int | None = None,
-                 salon_logs: int | None = None) -> None:
+                 salon_logs: int | None = None, salon_resultats: int | None = None) -> None:
         self.client = client
         self.salon_annonces = salon_annonces
         self.salon_logs = salon_logs
+        self.salon_resultats = salon_resultats
 
     def salon_id(self, tournoi: dict) -> int:
         """ID du salon des annonces d'un tournoi (état ou fichier d'inscription)."""
@@ -763,6 +772,12 @@ class MessagerieDiscord:
         except (discord.HTTPException, KeyError, ValueError) as erreur:
             log.warning("Alerte impossible à envoyer (ni LOG_CHANNEL, ni MP à l'admin) : %s", erreur,
                         extra=HORS_JOURNAL)
+
+    async def resultats(self, etat: dict, embeds: list[discord.Embed]) -> None:
+        if self.salon_resultats:
+            await self._poster(self.salon_resultats, None, embeds, quoi="SALON_RESULTATS")
+        else:
+            await self.annonce(etat, embeds=embeds)
 
     async def journal(self, texte: str) -> None:
         """Message dans LOG_CHANNEL (problèmes du bot, démarrage), sans mentionner personne."""

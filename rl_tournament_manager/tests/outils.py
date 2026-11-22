@@ -44,8 +44,8 @@ def ecrire_inscription(dossier: Path, tournoi: dict) -> None:
     (dossier / f"{tournoi['id']}.json").write_text(json.dumps(tournoi, ensure_ascii=False), encoding="utf-8")
 
 
-def faux_pp(_script: Path, nombre: int, sortie: Path) -> list[dict]:
-    """Remplace generer_pp_names.py : même format de fichier."""
+def faux_pp(nombre: int, sortie: Path) -> list[dict]:
+    """Remplace pp.generer_parties (noms reconnaissables dans les tests) : même format de fichier."""
     parties = [{"match": i, "nom": f"tomato_test{i}", "mot_de_passe": f"tomato_test{i}"}
                for i in range(1, nombre + 1)]
     sortie.parent.mkdir(parents=True, exist_ok=True)
@@ -75,6 +75,7 @@ class FausseMessagerie:
         self.salons_supprimes: list[str] = []
         self.suppression_salon_possible = True  # False : comme sans « Gérer les salons »
         self.journaux: list[str] = []      # messages d'information de LOG_CHANNEL
+        self.resultats_rondes: list[list] = []  # récaps de fin de round (SALON_RESULTATS)
         self.mps: list[tuple[str, str]] = []
         self.boutons: list[tuple[str, tuple[int, int, int]]] = []  # déclaration : (joueur, (round, zone, équipe))
         self.boutons_pp: list[tuple[str, tuple[int, int]]] = []    # partie créée : (joueur, (round, zone))
@@ -150,6 +151,9 @@ class FausseMessagerie:
 
     async def journal(self, texte) -> None:
         self.journaux.append(texte)
+
+    async def resultats(self, etat, embeds) -> None:
+        self.resultats_rondes.append(embeds)
 
     def titres_alertes(self) -> list[str]:
         """Texte de chaque alerte (embeds compris), pour les assertions."""

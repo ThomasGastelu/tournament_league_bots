@@ -21,7 +21,7 @@ def creer(tmp_path: Path, nb_equipes: int, *, simulation: Simulation | None, del
     ecrire_inscription(tmp_path / "inscriptions", tournoi_inscription(nb_equipes, TID))
     stockage = Stockage(tmp_path / "inscriptions", tmp_path / "data")
     messagerie = FausseMessagerie(clic_auto=False)  # aucun clic ni déclaration de la fausse messagerie
-    g = GestionnaireTournois(stockage, messagerie, script_pp=Path("inutile.py"), pause_entre_rondes=0,
+    g = GestionnaireTournois(stockage, messagerie, pause_entre_rondes=0,
                              rappel_clic_pp=60, attente_clic_pp_max=120, delai_declaration=delai,
                              generer_pp=faux_pp, rng=random.Random(1), simulation=simulation)
     messagerie.gestionnaire = g

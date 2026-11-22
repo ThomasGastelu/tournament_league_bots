@@ -650,6 +650,15 @@ def _ligne_match_status(etat: dict, match: dict) -> str:
     return f"**{zone_titre(etat, match['zone'])}** : {etat_match}"
 
 
+def embeds_resultats_ronde(etat: dict, ronde: dict) -> list[discord.Embed]:
+    """Récap d'un round terminé (salon des résultats) : score de chaque zone, puis classement."""
+    lignes = [f"**🎯 Round {ronde['numero']}**"]
+    lignes += [_ligne_match_status(etat, m) for m in sorted(ronde["matchs"], key=lambda m: m["zone"], reverse=True)]
+    lignes += ["", "**📊 Classement**", *lignes_classement(etat)]
+    return _embeds(f"🏆 {etat['titre']} — Round {ronde['numero']}/{etat['nombre_de_rondes']}", lignes,
+                   f"ID tournoi : {etat['tournoi_id']}")
+
+
 def embeds_status(etat: dict) -> list[discord.Embed]:
     ronde = L.ronde_actuelle(etat)
     lignes = [

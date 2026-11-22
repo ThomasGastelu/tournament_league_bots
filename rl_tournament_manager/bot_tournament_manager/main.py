@@ -40,11 +40,10 @@ class BotTournoi(discord.Client):
         super().__init__(intents=discord.Intents.default(),
                          allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=True))
         self.config = config
-        self.messagerie = MessagerieDiscord(self, config.salon_annonces, config.log_channel)
+        self.messagerie = MessagerieDiscord(self, config.salon_annonces, config.log_channel, config.salon_resultats)
         self.gestionnaire = GestionnaireTournois(
             Stockage(config.dossier_inscriptions, config.dossier_donnees),
             self.messagerie,
-            script_pp=config.script_pp,
             pause_entre_rondes=config.pause_entre_rondes,
             rappel_clic_pp=config.rappel_clic_pp,
             attente_clic_pp_max=config.attente_clic_pp_max,
@@ -109,13 +108,16 @@ class BotTournoi(discord.Client):
             log.warning(AVERTISSEMENT_SIMULATION)
 
         annonces = self.verifier_salon("SALON_ANNONCES", self.config.salon_annonces, "les annonces")
+        resultats = self.verifier_salon("SALON_RESULTATS", self.config.salon_resultats,
+                                        "le récap des résultats de chaque round")
         if not self.config.log_channel:
             log.info("LOG_CHANNEL est vide dans le .env : les alertes partent en MP à l'admin qui a lancé le tournoi.")
         elif self.verifier_salon("LOG_CHANNEL", self.config.log_channel, "les alertes et les problèmes du bot"):
             await self.messagerie.journal(
                 f"✅ Bot démarré (score demandé aux joueurs **{M.duree(self.config.delai_declaration)}** "
                 "après la création de la partie). "
-                f"Annonces : {f'<#{annonces}>' if annonces else 'salon de chaque tournoi'}.")
+                f"Annonces : {f'<#{annonces}>' if annonces else 'salon de chaque tournoi'}. "
+                f"Résultats des rounds : {f'<#{resultats}>' if resultats else 'avec les annonces'}.")
 
         if not any(e.get("statut") == L.EN_COURS for e in self.gestionnaire.stockage.lister_etats()):
             log.info("Prêt. Aucun tournoi en cours : lance-en un en tapant /start_tournament_rl "
@@ -127,6 +129,8 @@ class BotTournoi(discord.Client):
         if not salon_id:
             if variable == "SALON_ANNONCES":
                 log.info("Annonces : dans le salon de chaque tournoi (SALON_ANNONCES est vide dans le .env).")
+            elif variable == "SALON_RESULTATS":
+                log.info("Résultats des rounds : avec les annonces (SALON_RESULTATS est vide dans le .env).")
             return None
         # Les problèmes de LOG_CHANNEL ne peuvent pas être signalés dans LOG_CHANNEL.
         extra = HORS_JOURNAL if variable == "LOG_CHANNEL" else {}

@@ -119,7 +119,7 @@ def creer(tmp_path: Path, *, declaration_auto: bool = True):
     ecrire_inscription(tmp_path / "inscriptions", tournoi_inscription(2, TID))
     stockage = Stockage(tmp_path / "inscriptions", tmp_path / "data")
     messagerie = FausseMessagerie(clic_auto=False, declaration_auto=declaration_auto)
-    g = GestionnaireTournois(stockage, messagerie, script_pp=Path("inutile.py"), pause_entre_rondes=0,
+    g = GestionnaireTournois(stockage, messagerie, pause_entre_rondes=0,
                              rappel_clic_pp=60, attente_clic_pp_max=120, delai_declaration=0, generer_pp=faux_pp,
                              rng=random.Random(1))
     messagerie.gestionnaire = g

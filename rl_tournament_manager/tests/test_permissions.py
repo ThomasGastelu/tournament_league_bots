@@ -89,3 +89,9 @@ def test_config_salon_annonces(monkeypatch, tmp_path):
     monkeypatch.setenv("SALON_ANNONCES", "#annonces")
     with pytest.raises(C.ErreurConfig, match="SALON_ANNONCES"):
         C.charger_config()
+    monkeypatch.setenv("SALON_ANNONCES", "")
+
+    monkeypatch.setenv("SALON_RESULTATS", "")
+    assert C.charger_config().salon_resultats is None
+    monkeypatch.setenv("SALON_RESULTATS", "1543205821490528999")
+    assert C.charger_config().salon_resultats == 1543205821490528999
