@@ -93,7 +93,7 @@ def nouvel_etat(tournoi: dict, equipes: list[dict], *, nombre_de_rondes: int,
         "titre": tournoi["titre"],
         "serveur_id": tournoi["serveur_id"],
         "salon_id": tournoi["salon_id"],
-        "salon_discussion_id": None,  # salon texte créé au lancement (joueurs + admins)
+        "salon_discussion_id": None,  # salon texte créé par /start_tournament_init (joueurs + admins)
         "joueurs_par_equipe": tournoi.get("joueurs_par_equipe"),
         "statut": EN_COURS,
         "nombre_de_rondes": nombre_de_rondes,
@@ -108,6 +108,39 @@ def nouvel_etat(tournoi: dict, equipes: list[dict], *, nombre_de_rondes: int,
         "rondes": [],
         "modifications": [],  # /edit_player_tournament_rl : qui a changé quoi, et quand
     }
+
+
+def etat_init(tournoi: dict, equipes: list[dict], *, par: str, maintenant: str) -> dict:
+    """/start_tournament_init : de quoi créer le salon de discussion avant le lancement du tournoi."""
+    return {
+        "tournoi_id": tournoi["id"],
+        "titre": tournoi["titre"],
+        "serveur_id": tournoi["serveur_id"],
+        "salon_id": tournoi["salon_id"],
+        "salon_discussion_id": None,
+        "lance_par": par,  # l'admin qui a ouvert le salon y a accès
+        "init_le": maintenant,
+        "equipes": {str(e["id"]): _nouvelle_equipe(e) for e in equipes},
+    }
+
+
+LONGUEUR_MAX_PP = 32
+
+
+def modifier_pp(match: dict, nom: str, mot_de_passe: str | None) -> dict:
+    """/start_tournament_modify_pp : nouveau nom (et mot de passe, = nom s'il est vide) de la partie privée.
+    Renvoie l'ancienne partie."""
+    if match["statut"] not in MATCHS_A_JOUER:
+        raise ErreurTournoi("Ce match n'est plus en cours : sa partie privée ne peut plus être changée.")
+    nom = (nom or "").strip()
+    mot_de_passe = (mot_de_passe or "").strip() or nom
+    if not nom:
+        raise ErreurTournoi("Le nom de la partie privée ne peut pas être vide.")
+    if len(nom) > LONGUEUR_MAX_PP or len(mot_de_passe) > LONGUEUR_MAX_PP:
+        raise ErreurTournoi(f"Nom et mot de passe : {LONGUEUR_MAX_PP} caractères maximum.")
+    ancienne = dict(match["pp"])
+    match["pp"] = {"nom": nom, "mot_de_passe": mot_de_passe}
+    return ancienne
 
 
 def _nouvelle_equipe(equipe: dict) -> dict:

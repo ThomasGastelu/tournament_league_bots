@@ -480,9 +480,13 @@ def decouper(lignes: list[str], limite: int = LIMITE_MESSAGE) -> list[str]:
 
 def textes_bienvenue_salon(etat: dict) -> list[str]:
     """Premier message du salon de discussion : mentionne chaque joueur (il voit ainsi le salon)."""
+    if "nombre_de_rondes" in etat:
+        infos = f"{len(etat['equipes'])} équipes · {etat['nombre_de_rondes']} round(s) · lancé par <@{etat['lance_par']}>."
+    else:  # /start_tournament_init : le tournoi n'est pas encore lancé
+        infos = f"{len(etat['equipes'])} équipes · salon ouvert par <@{etat['lance_par']}>."
     lignes = [
         f"👋 Bienvenue dans le salon du tournoi **{_titre(etat)}** !",
-        f"{len(etat['equipes'])} équipes · {etat['nombre_de_rondes']} round(s) · lancé par <@{etat['lance_par']}>.",
+        infos,
         "Ce salon est réservé aux joueurs du tournoi et aux admins : questions, problèmes, captures de score…",
         "🔒 Le nom et le mot de passe de chaque partie privée arrivent **en MP**.",
         "",
@@ -491,6 +495,25 @@ def textes_bienvenue_salon(etat: dict) -> list[str]:
     for e in sorted(etat["equipes"].values(), key=lambda e: e["id"]):
         lignes.append(f"**{escape_markdown(e['nom'])}** : " + " ".join(f"<@{j['id']}>" for j in e["joueurs"]))
     return decouper(lignes)
+
+
+TEXTE_INIT = "@here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀"
+
+
+def mp_pp_modifiee(etat: dict, numero: int, match: dict) -> str:
+    """Aux joueurs, quand un admin change la partie privée d'une partie déjà créée."""
+    return "\n".join([
+        f"🔁 **La partie privée a changé** — {_titre(etat)}, round {numero}, {zone_titre(etat, match['zone'])} "
+        f"(**{_nom(etat, match['equipe_a'])}** vs **{_nom(etat, match['equipe_b'])}**). Nouvelle partie :",
+        *_bloc_partie(match),
+    ])
+
+
+def texte_journal_pp(etat: dict, numero: int, match: dict, ancienne: dict, par: str) -> str:
+    """LOG_CHANNEL : /start_tournament_modify_pp."""
+    return (f"🔁 <@{par}> a changé la partie privée de **{_titre(etat)}**, round {numero}, "
+            f"{zone_titre(etat, match['zone'])} : `{ancienne['nom']}` / `{ancienne['mot_de_passe']}` → "
+            f"`{match['pp']['nom']}` / `{match['pp']['mot_de_passe']}`.")
 
 
 def texte_arret(etat: dict) -> str:

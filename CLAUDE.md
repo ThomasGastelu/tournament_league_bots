@@ -9,7 +9,7 @@ Ce fichier guide Claude (et tout contributeur) dans ce dépôt.
 | Dossier | Paquet (`python -m …`) | Rôle |
 |---|---|---|
 | `rl_bot_ppname_creator/` | `bot_inscription_manager` | Inscriptions aux tournois (`/tournoi_rl*`), liste d'attente, confirmations des coéquipiers. Contient aussi le script `generer_pp_names.py` (noms / mots de passe aléatoires de parties privées), que `tournament_manager` n'utilise plus. |
-| `rl_tournament_manager/` | `bot_tournament_manager` | Fait jouer un tournoi inscrit : zones, rounds, MP avec les parties privées, demande des scores aux joueurs (`DELAI_DECLARATION` après le clic « Partie privée créée »), déclarations, classement (`/start_tournament_rl`, `/stop_…`, `/reset_…`, `/set_result_…`, `/edit_player_…`). |
+| `rl_tournament_manager/` | `bot_tournament_manager` | Fait jouer un tournoi inscrit : zones, rounds, MP avec les parties privées, demande des scores aux joueurs (`DELAI_DECLARATION` après le clic « Partie privée créée »), déclarations, classement (`/start_tournament_init` crée le salon de discussion avant le lancement, `/start_tournament_rl`, `/start_tournament_modify_pp` change la partie privée d'une zone, `/stop_…`, `/reset_…`, `/set_result_…`, `/edit_player_…`). |
 | `rl_bot_mp/` | `bot_mp` | `/mp_all` : envoie un MP à tous les membres du serveur (admins). Indépendant des deux autres. |
 | `rl_bot_ticket/` | `bot_ticket` | Tickets de support : `/ticket_panel` publie le panneau « Support » ; le bouton « 🎫 Créer un ticket » ouvre un salon privé (auteur + `ROLES_STAFF`) selon la catégorie choisie. Indépendant des autres, sans fichier `data/`. |
 | `rl_api_pp_connector/` | scripts (`python rl_join_bot.py …`) | Connecteur Rocket League : `rl_join_bot.py` rejoint une partie privée en pilotant les menus (pyautogui / pydirectinput, positions calibrées dans `positions.json`, OCR Tesseract facultatif) ; `rl_match_watcher.py` lit le score via la **Stats API** locale (`127.0.0.1:49123`). Utilisé seul : `tournament_manager` ne l'importe plus. |
@@ -28,7 +28,7 @@ bot_tournament_manager   ──lit───────────────�
 - Les chemins sont réglés dans le `.env` de `tournament_manager` (`DOSSIER_INSCRIPTIONS`), relatifs à `rl_tournament_manager/`. Salons : `SALON_ANNONCES`, `LOG_CHANNEL` et `SALON_RESULTATS` (récap de chaque round, ex. `#resultat-match`).
 - Changer le format du JSON d'inscription impacte `tournament_manager` : vérifier `stockage.py` et ses tests des deux côtés.
 - Une fois lancé, `tournament_manager` a copié titre et équipes : les modifications d'inscription ne s'appliquent plus au tournoi en cours.
-- `/reset_tournament_rl` (remise à zéro) efface uniquement les fichiers de `rl_tournament_manager/data/` du tournoi (`Stockage.fichiers_du_tournoi` : état, pp, archives) et supprime ses salons de discussion ; il ne touche jamais au JSON d'inscription.
+- `/reset_tournament_rl` (remise à zéro) efface uniquement les fichiers de `rl_tournament_manager/data/` du tournoi (`Stockage.fichiers_du_tournoi` : état, pp, archives, salon de `/start_tournament_init`) et supprime ses salons de discussion ; il ne touche jamais au JSON d'inscription.
 
 ## Stack
 
@@ -112,7 +112,7 @@ Spécifique à `bot_tournament_manager` :
 - Seules les équipes `inscrite` dont tous les joueurs ont confirmé participent.
 - Score : `source_resultat` = `declarations` (deux équipes d'accord) ou `admin` (`bot` dans les anciens fichiers, quand l'observateur existait) ; `/set_result_tournament_rl` est toujours prioritaire.
 - Statuts JSON : tournoi `en_cours`/`termine`/`arrete`, round `en_cours`/`terminee`, match `en_attente`/`en_cours`/`termine`/`a_valider`/`annule`. Tout changement de format doit rester compatible avec les fichiers existants (ex. les tournois lancés avant `golden_round` gardent +3 dès le round 1).
-- `/reset_tournament_rl id_tournoi [garder_salon]` (après confirmation « Oui, tout effacer ») : arrête le tournoi s'il tourne (joueurs prévenus), efface `data/tournois/<id>.json`, `data/pp/<id>_ronde_*.json` et `data/archives/<id>_*.json`, supprime le salon de discussion (sauf `garder_salon: True`) et note la remise à zéro dans `LOG_CHANNEL`. Irréversible ; le tournoi redevient proposé à `/start_tournament_rl`. Pour garder les résultats, c'est `/stop_tournament_rl`.
+- `/reset_tournament_rl id_tournoi [garder_salon]` (après confirmation « Oui, tout effacer ») : arrête le tournoi s'il tourne (joueurs prévenus), efface `data/tournois/<id>.json`, `data/pp/<id>_ronde_*.json`, `data/archives/<id>_*.json` et `data/salons/<id>.json` (salon de `/start_tournament_init`), supprime le salon de discussion (sauf `garder_salon: True`) et note la remise à zéro dans `LOG_CHANNEL`. Irréversible ; le tournoi redevient proposé à `/start_tournament_rl`. Pour garder les résultats, c'est `/stop_tournament_rl`.
 - Tout doit survivre à un redémarrage : état dans le JSON, boutons en `DynamicItem`.
 - Limites Discord : 2000 caractères par message, 4096 par description d'embed, édition d'une interaction impossible après 15 min (repli en MP), ~1 MP/seconde pour `/mp_all`.
 

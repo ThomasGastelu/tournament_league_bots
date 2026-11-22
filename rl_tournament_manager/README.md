@@ -6,9 +6,11 @@ Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), 
 
 | Commande | Qui | Ce qu'elle fait |
 |---|---|---|
-| `/start_tournament_rl id_tournoi nombre_de_matchs [golden_round]` | admins | Lance le tournoi et crée son salon de discussion (voir « Salons »). `nombre_de_matchs` = nombre de matchs joués par chaque équipe (= nombre de rounds). `golden_round` (facultatif, 1 par défaut) = round à partir duquel la victoire en zone haute rapporte +3 (voir « Points »). |
+| `/start_tournament_init id_tournoi` | admins | À faire avant le lancement : crée le salon de discussion du tournoi (voir « Salons ») et y poste « @here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀 ». |
+| `/start_tournament_rl id_tournoi nombre_de_matchs [golden_round]` | admins | Lance le tournoi (il reprend le salon créé par `/start_tournament_init` ; il n'en crée plus). `nombre_de_matchs` = nombre de matchs joués par chaque équipe (= nombre de rounds). `golden_round` (facultatif, 1 par défaut) = round à partir duquel la victoire en zone haute rapporte +3 (voir « Points »). |
 | `/start_tournament_rl_status id_tournoi` | tout le monde | Round en cours, état de chaque zone et classement (réponse visible par toi seul). |
 | `/stop_tournament_rl id_tournoi` | admins | Arrête le tournoi (après confirmation) : matchs en cours annulés, joueurs prévenus en MP. |
+| `/start_tournament_modify_pp id_tournoi zone nom [mot_de_passe]` | admins | Change le nom et le mot de passe de la partie privée d'une zone du round en cours (`mot_de_passe` vide = le même que le nom). Partie déjà créée : tous les joueurs du match reçoivent la nouvelle en MP. Sinon : le capitaine reçoit la nouvelle partie à créer, et les autres la recevront à son clic. Noté dans `LOG_CHANNEL`. |
 | `/set_result_tournament_rl id_tournoi zone gagnant score_gagnant score_perdant` | admins | Fixe le score d'un match (déclarations différentes ou manquantes, match bloqué…). Toujours prioritaire. |
 | `/edit_player_tournament_rl id_tournoi joueur [pseudo_jeu] [pseudo] [nom_equipe] [devient_capitaine] [remplace_par]` | admins | Modifie un joueur pendant le tournoi (voir « Modifier un joueur pendant le tournoi »). |
 | `/reset_tournament_rl id_tournoi [garder_salon]` | admins | Remet le tournoi à zéro (après confirmation) : efface tout ce que le bot a gardé sur lui pour le relancer de zéro (voir « Remettre un tournoi à zéro »). |
@@ -122,14 +124,15 @@ Zone 1 ⭐ : ✅ caca 1 - 2 tomatoTown
 🥈 caca — 3 points (1V-2D, diff -2)
 ```
 
-**Salon de discussion** (un par tournoi, créé par `/start_tournament_rl`) — privé :
+**Salon de discussion** (un par tournoi, créé par `/start_tournament_init`) — privé :
 - nom `💬-<titre-du-tournoi>`, dans la **même catégorie** que le salon où le tournoi a été créé avec le bot d'inscription (à la racine du serveur si ce salon n'est pas dans une catégorie) ;
 - visible seulement par les **joueurs des équipes participantes**, les **admins** (rôles avec « Gérer le serveur » ou « Administrateur »), l'admin qui a lancé le tournoi et le bot. Ils peuvent y écrire et y envoyer des fichiers (captures de score) ;
-- le bot y poste un message de bienvenue qui mentionne chaque joueur ; les mots de passe des parties restent en MP ;
+- le bot y poste un message de bienvenue qui mentionne chaque joueur, puis « @here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀 » ; les mots de passe des parties restent en MP. Pour que le @here notifie, il faut au bot **Mentionner @everyone, @here et tous les rôles** (sinon la console le signale) ;
 - un joueur qui a quitté le serveur n'y a pas accès : le bot le signale dans `LOG_CHANNEL` ;
-- son ID est gardé dans le JSON (`salon_discussion_id`). À la fin ou à l'arrêt du tournoi, le salon reste : supprime-le à la main quand tu veux. Un tournoi relancé a un nouveau salon. `/reset_tournament_rl` le supprime (sauf avec `garder_salon: True`).
+- son ID est gardé dans `data/salons/<id>.json`, puis dans le JSON du tournoi (`salon_discussion_id`) au `/start_tournament_rl`. Sans `/start_tournament_init` avant, le tournoi se joue sans salon de discussion. `/start_tournament_init` refuse de créer un deuxième salon tant que le premier existe ;
+- à la fin ou à l'arrêt du tournoi, le salon reste : supprime-le à la main quand tu veux. Un tournoi relancé garde le même salon. `/reset_tournament_rl` le supprime (sauf avec `garder_salon: True`).
 
-Il faut au bot **Gérer les salons** et **Joindre des fichiers** (en plus des permissions d'annonce) sur le serveur, et que la catégorie ne les lui retire pas. Sinon `/start_tournament_rl` refuse de lancer le tournoi et dit quoi cocher, et où (rôle du bot sur le serveur, ou catégorie).
+Il faut au bot **Gérer les salons** et **Joindre des fichiers** (en plus des permissions d'annonce) sur le serveur, et que la catégorie ne les lui retire pas. Sinon `/start_tournament_init` refuse de créer le salon et dit quoi cocher, et où (rôle du bot sur le serveur, ou catégorie).
 
 **Catégorie en lecture seule** (les membres ne peuvent pas écrire) : elle retire aussi ces permissions au bot, et réinviter le bot n'y change rien. Clic droit sur la catégorie > **Modifier la catégorie** > **Permissions** > rôle du bot > mets en ✅ vert **Gérer les salons**, **Envoyer des messages**, **Intégrer des liens** et **Joindre des fichiers**. Les membres restent bloqués ; seul le bot reçoit ces droits.
 

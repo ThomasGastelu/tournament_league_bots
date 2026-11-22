@@ -79,6 +79,7 @@ def test_texte_de_confirmation():
 def test_remise_a_zero_d_un_tournoi_en_cours(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 4, delai=60)
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
         await g.demarrer(TID, 5, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"]))
         assert stockage.fichiers_du_tournoi(TID)  # état + parties privées du round 1
@@ -101,6 +102,7 @@ def test_remise_a_zero_d_un_tournoi_en_cours(tmp_path):
 def test_remise_a_zero_puis_relance_de_zero(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2)
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)  # archive le premier lancement
@@ -123,6 +125,7 @@ def test_remise_a_zero_puis_relance_de_zero(tmp_path):
 def test_garder_le_salon(tmp_path):
     async def scenario():
         g, _, messagerie = creer(tmp_path, 2)
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
         return await g.reinitialiser(TID, serveur_id=SERVEUR, par=ADMIN, garder_salon=True), messagerie
@@ -137,6 +140,7 @@ def test_salon_impossible_a_supprimer_n_empeche_pas_la_remise_a_zero(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2)
         messagerie.suppression_salon_possible = False
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
         return await g.reinitialiser(TID, serveur_id=SERVEUR, par=ADMIN), stockage
@@ -152,6 +156,7 @@ def test_refus_si_rien_a_effacer_ou_autre_serveur(tmp_path):
         g, _, _ = creer(tmp_path, 2)
         with pytest.raises(L.ErreurTournoi, match="Rien à remettre à zéro"):
             await g.reinitialiser(TID, serveur_id=SERVEUR, par=ADMIN)  # jamais lancé
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
         with pytest.raises(L.ErreurTournoi, match="Rien à remettre à zéro"):
@@ -167,6 +172,7 @@ def test_seules_les_archives_restent(tmp_path):
     """Un ancien lancement archivé, sans état actuel : la remise à zéro l'efface aussi."""
     async def scenario():
         g, stockage, _ = creer(tmp_path, 2)
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
         stockage.archiver_etat(TID, "ancien")

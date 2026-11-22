@@ -1,5 +1,6 @@
-"""Commandes slash : /start_tournament_rl, /start_tournament_rl_status,
-/stop_tournament_rl, /reset_tournament_rl, /set_result_tournament_rl et /edit_player_tournament_rl."""
+"""Commandes slash : /start_tournament_init, /start_tournament_rl, /start_tournament_rl_status,
+/start_tournament_modify_pp, /stop_tournament_rl, /reset_tournament_rl, /set_result_tournament_rl
+et /edit_player_tournament_rl."""
 
 from __future__ import annotations
 
@@ -195,6 +196,34 @@ def probleme_salon_discussion(interaction: discord.Interaction, tournoi_id: str)
     return "\n".join(lignes)
 
 
+@app_commands.command(name="start_tournament_init",
+                      description="Crée le salon du tournoi (joueurs + admins) et prévient les joueurs avant le lancement")
+@app_commands.describe(id_tournoi="ID du tournoi (fichier d'inscription)")
+@app_commands.autocomplete(id_tournoi=autocomplete_inscription)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def start_tournament_init(interaction: discord.Interaction, id_tournoi: str) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    probleme = probleme_salon_discussion(interaction, id_tournoi)
+    if probleme:
+        log.info("/start_tournament_init %s refusé (demandé par %s) : permissions du bot", id_tournoi,
+                 interaction.user)
+        return await repondre(interaction, probleme)
+    try:
+        init = await gestionnaire(interaction).initialiser(
+            id_tournoi, serveur_id=str(interaction.guild_id), par=str(interaction.user.id))
+    except L.ErreurTournoi as erreur:
+        log.info("/start_tournament_init %s refusé (demandé par %s) : %s", id_tournoi, interaction.user, erreur)
+        return await repondre(interaction, f"❌ {erreur}")
+    await repondre(
+        interaction,
+        f"✅ Salon du tournoi **{discord.utils.escape_markdown(init['titre'])}** créé : "
+        f"<#{init['salon_discussion_id']}> ({len(init['equipes'])} équipes + les admins). Les joueurs y sont "
+        f"prévenus que le tournoi va bientôt commencer.\n"
+        f"Pour lancer le tournoi : `/start_tournament_rl id_tournoi:{init['tournoi_id']} nombre_de_matchs:…`",
+    )
+
+
 @app_commands.command(name="start_tournament_rl", description="Lance un tournoi Rocket League (zones qui montent/descendent)")
 @app_commands.describe(
     id_tournoi="ID du tournoi (fichier d'inscription)",
@@ -208,7 +237,7 @@ async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
                               nombre_de_matchs: app_commands.Range[int, 1, 50],
                               golden_round: app_commands.Range[int, 1, 50] = 1) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
-    probleme = probleme_salon(interaction, id_tournoi) or probleme_salon_discussion(interaction, id_tournoi)
+    probleme = probleme_salon(interaction, id_tournoi)
     if probleme:
         log.info("/start_tournament_rl %s refusé (demandé par %s) : permissions du bot", id_tournoi, interaction.user)
         return await repondre(interaction, probleme)
@@ -224,7 +253,8 @@ async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
     if etat.get("salon_discussion_id"):
         discussion = f"💬 Salon de discussion (joueurs + admins) : <#{etat['salon_discussion_id']}>\n"
     else:
-        discussion = "⚠️ Le salon de discussion n'a pas pu être créé (raison dans la console et `LOG_CHANNEL`).\n"
+        discussion = (f"ℹ️ Pas de salon de discussion : crée-le avant le lancement avec "
+                      f"`/start_tournament_init id_tournoi:{etat['tournoi_id']}`.\n")
     await repondre(
         interaction,
         f"✅ Tournoi **{discord.utils.escape_markdown(etat['titre'])}** lancé : {len(etat['equipes'])} équipes, "
@@ -349,6 +379,36 @@ class ConfirmationReinitialisation(ui.View):
 # /set_result_tournament_rl
 # --------------------------------------------------------------------------- #
 
+@app_commands.command(name="start_tournament_modify_pp",
+                      description="Change le nom et le mot de passe de la partie privée d'une zone (round en cours)")
+@app_commands.describe(
+    id_tournoi="ID du tournoi",
+    zone="Zone du match (round en cours)",
+    nom="Nouveau nom de la partie privée",
+    mot_de_passe="Nouveau mot de passe (vide : le même que le nom)",
+)
+@app_commands.autocomplete(id_tournoi=autocomplete_etat_en_cours, zone=autocomplete_zone)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def start_tournament_modify_pp(interaction: discord.Interaction, id_tournoi: str, zone: int,
+                                     nom: app_commands.Range[str, 1, L.LONGUEUR_MAX_PP],
+                                     mot_de_passe: app_commands.Range[str, 1, L.LONGUEUR_MAX_PP] | None = None
+                                     ) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        etat, match = await gestionnaire(interaction).modifier_pp(
+            id_tournoi, zone, nom, mot_de_passe, serveur_id=str(interaction.guild_id), par=str(interaction.user.id))
+    except L.ErreurTournoi as erreur:
+        return await repondre(interaction, f"❌ {erreur}")
+    if match.get("pp_creee_le"):
+        qui = "Tous les joueurs du match ont reçu la nouvelle partie en MP."
+    else:
+        qui = ("Le capitaine a reçu la nouvelle partie à créer ; les autres joueurs la recevront quand il aura "
+               "cliqué sur « Partie privée créée ».")
+    await repondre(interaction, f"✅ Zone {match['zone']} : nouvelle partie privée `{match['pp']['nom']}` "
+                                f"(mot de passe `{match['pp']['mot_de_passe']}`). {qui}")
+
+
 @app_commands.command(name="set_result_tournament_rl", description="Valide à la main le résultat d'un match (match sans vainqueur, bloqué…)")
 @app_commands.describe(
     id_tournoi="ID du tournoi",
@@ -419,7 +479,7 @@ async def edit_player_tournament_rl(
 
 
 COMMANDES = [start_tournament_rl, start_tournament_rl_status, stop_tournament_rl, set_result_tournament_rl,
-             edit_player_tournament_rl, reset_tournament_rl]
+             edit_player_tournament_rl, reset_tournament_rl, start_tournament_init, start_tournament_modify_pp]
 
 
 async def gerer_erreur(interaction: discord.Interaction, erreur: app_commands.AppCommandError) -> None:

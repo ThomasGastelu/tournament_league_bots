@@ -19,7 +19,7 @@ def test_lettres_apres_z():
 def test_noms_des_commandes():
     assert [c.name for c in COMMANDES] == [
         "start_tournament_rl", "start_tournament_rl_status", "stop_tournament_rl", "set_result_tournament_rl",
-        "edit_player_tournament_rl", "reset_tournament_rl"]
+        "edit_player_tournament_rl", "reset_tournament_rl", "start_tournament_init", "start_tournament_modify_pp"]
     start = COMMANDES[0]
     assert [p.name for p in start.parameters] == ["id_tournoi", "nombre_de_matchs", "golden_round"]
     assert [p.required for p in start.parameters] == [True, True, False]

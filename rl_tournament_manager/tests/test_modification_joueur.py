@@ -127,7 +127,9 @@ def creer(tmp_path: Path, *, declaration_auto: bool = True):
 
 
 async def lancer(g, stockage, messagerie) -> tuple[dict, dict]:
-    """Lance le tournoi et attend les MP du round 1. Renvoie (état, match de la zone 1)."""
+    """Crée le salon (/start_tournament_init), lance le tournoi et attend les MP du round 1.
+    Renvoie (état, match de la zone 1)."""
+    await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
     await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
     await attendre_que(lambda: messagerie.boutons_pp)
     etat = stockage.charger_etat(TID)

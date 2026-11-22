@@ -76,6 +76,14 @@ class Messagerie(Protocol):
         Renvoie son ID, ou None s'il n'a pas pu être créé."""
         ...
 
+    async def salon_existe(self, salon_id: str) -> bool:
+        """False si le salon a été supprimé."""
+        ...
+
+    async def message_salon(self, salon_id: str, texte: str, *, mentionner_here: bool = False) -> bool:
+        """Message dans un salon (ex. salon de discussion), avec @here qui notifie si `mentionner_here`."""
+        ...
+
     async def changer_acces_salon(self, etat: dict, *, ajouter: str | None = None,
                                   retirer: str | None = None) -> bool:
         """Donne (`ajouter`) ou retire (`retirer`) l'accès au salon de discussion. True si c'est fait."""
@@ -150,31 +158,79 @@ class GestionnaireTournois:
                                  lance_par=lance_par, maintenant=maintenant(), golden_round=golden_round)
             if ancien:
                 self.stockage.archiver_etat(tournoi_id, ancien.get("lance_le") or maintenant())
+            # Salon de discussion créé avant par /start_tournament_init.
+            init = self.stockage.charger_init(tournoi_id)
+            if init and init.get("salon_discussion_id"):
+                etat["salon_discussion_id"] = str(init["salon_discussion_id"])
             self.stockage.sauvegarder_etat(etat)
-        # Avant le premier round : le salon existe quand les joueurs reçoivent leurs MP.
-        await self._creer_salon_discussion(etat)
         # Séparateur + lancement dans le salon des résultats, avant le récap du premier round.
         await self.messagerie.resultats(etat, texte=M.texte_lancement_tournoi(etat))
         self._lancer(tournoi_id)
         return etat
 
-    async def _creer_salon_discussion(self, etat: dict) -> None:
-        """Crée le salon de discussion et garde son ID dans le JSON. Un échec ne bloque pas le tournoi."""
-        tournoi_id = etat["tournoi_id"]
+    async def initialiser(self, tournoi_id: str, *, serveur_id: str, par: str) -> dict:
+        """/start_tournament_init : crée le salon de discussion du tournoi (joueurs + admins) et y poste
+        « @here le tournoi va bientôt commencer ». /start_tournament_rl le reprend ensuite."""
+        tournoi_id = tournoi_id.strip()
+        async with self.stockage.verrou(tournoi_id):
+            tournoi = self.stockage.charger_inscription(tournoi_id)
+            if tournoi is None or tournoi.get("serveur_id") != serveur_id:
+                raise L.ErreurTournoi(f"Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
+            etat = self.stockage.charger_etat(tournoi_id)
+            if etat and etat["statut"] == L.EN_COURS:
+                raise L.ErreurTournoi("Ce tournoi est déjà lancé.")
+            ancien = self.stockage.charger_init(tournoi_id)
+            equipes = L.equipes_participantes(tournoi)
+        if ancien and ancien.get("salon_discussion_id") and await self.messagerie.salon_existe(
+                ancien["salon_discussion_id"]):
+            raise L.ErreurTournoi(f"Le salon de ce tournoi existe déjà : <#{ancien['salon_discussion_id']}>.")
+
+        init = L.etat_init(tournoi, equipes, par=par, maintenant=maintenant())
         try:
-            salon_id = await self.messagerie.creer_salon_discussion(etat)
+            salon_id = await self.messagerie.creer_salon_discussion(init)
         except Exception:
             log.exception("Tournoi %s : impossible de créer le salon de discussion", tournoi_id)
-            return
+            salon_id = None
         if not salon_id:
-            return
-        etat["salon_discussion_id"] = str(salon_id)
+            raise L.ErreurTournoi("Le salon n'a pas pu être créé : la raison est dans la console et `LOG_CHANNEL`.")
+        init["salon_discussion_id"] = str(salon_id)
         async with self.stockage.verrou(tournoi_id):
-            sur_disque = self.stockage.charger_etat(tournoi_id)
-            if sur_disque is not None:
-                sur_disque["salon_discussion_id"] = str(salon_id)
-                self.stockage.sauvegarder_etat(sur_disque)
-        log.info("Tournoi %s : salon de discussion %s créé", tournoi_id, salon_id)
+            self.stockage.sauvegarder_init(init)
+        await self.messagerie.message_salon(str(salon_id), M.TEXTE_INIT, mentionner_here=True)
+        log.info("Tournoi %s : salon de discussion %s créé par %s", tournoi_id, salon_id, par)
+        return init
+
+    async def modifier_pp(self, tournoi_id: str, zone: int, nom: str, mot_de_passe: str | None, *,
+                          serveur_id: str, par: str) -> tuple[dict, dict]:
+        """/start_tournament_modify_pp : change la partie privée du match d'une zone (round en cours).
+
+        Partie déjà créée (clic du capitaine) : tous les joueurs du match reçoivent la nouvelle partie.
+        Sinon : le capitaine reçoit de nouveau le MP de création (avec le bouton) ; les autres joueurs
+        la recevront au clic, comme d'habitude. Renvoie (état, match).
+        """
+        tournoi_id = tournoi_id.strip()
+        async with self.stockage.verrou(tournoi_id):
+            etat = self._etat_du_serveur(tournoi_id, serveur_id)
+            ronde = L.ronde_actuelle(etat)
+            if etat["statut"] != L.EN_COURS or ronde is None or ronde["statut"] != L.RONDE_EN_COURS:
+                raise L.ErreurTournoi("Aucun round en cours pour ce tournoi.")
+            match = L.trouver_match(ronde, zone)
+            ancienne = L.modifier_pp(match, nom, mot_de_passe)
+            self.stockage.sauvegarder_etat(etat)
+        numero = ronde["numero"]
+        log.info("Tournoi %s, round %s, zone %s : partie privée changée par %s (%s → %s)", tournoi_id, numero,
+                 zone, par, ancienne["nom"], match["pp"]["nom"])
+        if match.get("pp_creee_le"):
+            texte = M.mp_pp_modifiee(etat, numero, match)
+            for equipe_id in (match["equipe_a"], match["equipe_b"]):
+                for joueur in L.equipe(etat, equipe_id)["joueurs"]:
+                    await self.messagerie.mp(etat, joueur["id"], texte)
+        else:
+            capitaine_id = L.equipe(etat, match["equipe_a"])["capitaine_id"]
+            await self.messagerie.mp(etat, capitaine_id, M.mp_creation(etat, numero, match),
+                                     M.secours_infos_match(etat, numero, match), pp_creee=(numero, zone))
+        await self.messagerie.journal(M.texte_journal_pp(etat, numero, match, ancienne, par))
+        return etat, match
 
     def reprendre(self) -> list[str]:
         """Relance les tournois en cours (au démarrage du bot)."""
@@ -210,9 +266,12 @@ class GestionnaireTournois:
             fichiers = []
         actuel = self.stockage.charger_etat(tournoi_id)
         etats = ([actuel] if actuel else []) + (self.stockage.charger_archives(tournoi_id) if fichiers else [])
+        init = self.stockage.charger_init(tournoi_id) if fichiers else None
+        if init:
+            etats.append(init)  # salon de /start_tournament_init (même sans lancement)
         if not etats or etats[0].get("serveur_id") != serveur_id:
             raise L.ErreurTournoi(f"Rien à remettre à zéro pour l'ID `{tournoi_id}` sur ce serveur "
-                                  "(aucun tournoi lancé avec cet ID).")
+                                  "(aucun tournoi lancé ou initialisé avec cet ID).")
         return etats[0], L.salons_discussion(etats), fichiers
 
     async def reinitialiser(self, tournoi_id: str, *, serveur_id: str, par: str, garder_salon: bool = False) -> dict:
@@ -775,6 +834,26 @@ class MessagerieDiscord:
         except (discord.HTTPException, KeyError, ValueError) as erreur:
             log.warning("Alerte impossible à envoyer (ni LOG_CHANNEL, ni MP à l'admin) : %s", erreur,
                         extra=HORS_JOURNAL)
+
+    async def salon_existe(self, salon_id: str) -> bool:
+        try:
+            salon = self.client.get_channel(int(salon_id)) or await self.client.fetch_channel(int(salon_id))
+        except discord.NotFound:
+            return False
+        except (discord.HTTPException, ValueError):
+            return True  # dans le doute, on ne recrée pas un deuxième salon
+        return salon is not None
+
+    async def message_salon(self, salon_id: str, texte: str, *, mentionner_here: bool = False) -> bool:
+        salon = self.client.get_channel(int(salon_id))
+        moi = getattr(getattr(salon, "guild", None), "me", None)
+        if mentionner_here and moi is not None and hasattr(salon, "permissions_for") \
+                and not salon.permissions_for(moi).mention_everyone:
+            log.warning("Le @here du salon #%s ne notifiera personne : il manque au bot « Mentionner @everyone, "
+                        "@here et tous les rôles » (Paramètres du serveur > Rôles > rôle du bot).",
+                        getattr(salon, "name", salon_id))
+        mentions = discord.AllowedMentions(everyone=True) if mentionner_here else None
+        return await self._poster(int(salon_id), texte, None, quoi="le salon de discussion", mentions=mentions)
 
     async def resultats(self, etat: dict, texte: str | None = None,
                         embeds: list[discord.Embed] | None = None) -> None:

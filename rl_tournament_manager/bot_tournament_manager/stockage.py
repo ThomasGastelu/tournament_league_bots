@@ -40,7 +40,8 @@ class Stockage:
         self.dossier_etats = self.dossier_donnees / "tournois"
         self.dossier_pp = self.dossier_donnees / "pp"
         self.dossier_archives = self.dossier_donnees / "archives"
-        for dossier in (self.dossier_etats, self.dossier_pp, self.dossier_archives):
+        self.dossier_salons = self.dossier_donnees / "salons"  # /start_tournament_init : salon créé avant le lancement
+        for dossier in (self.dossier_etats, self.dossier_pp, self.dossier_archives, self.dossier_salons):
             dossier.mkdir(parents=True, exist_ok=True)
         self._verrous: dict[str, asyncio.Lock] = {}
 
@@ -102,6 +103,19 @@ class Stockage:
 
     # --- Parties privées -------------------------------------------------- #
 
+    def charger_init(self, tournoi_id: str) -> dict | None:
+        """Ce que /start_tournament_init a créé (salon de discussion), ou None."""
+        try:
+            return _lire(self.dossier_salons / f"{_verifier_id(tournoi_id)}.json")
+        except ValueError:
+            return None
+
+    def sauvegarder_init(self, init: dict) -> None:
+        chemin = self.dossier_salons / f"{_verifier_id(init['tournoi_id'])}.json"
+        temporaire = chemin.with_suffix(".json.tmp")
+        temporaire.write_text(json.dumps(init, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporaire, chemin)
+
     def chemin_pp(self, tournoi_id: str, numero_ronde: int) -> Path:
         return self.dossier_pp / f"{_verifier_id(tournoi_id)}_ronde_{int(numero_ronde)}.json"
 
@@ -109,12 +123,14 @@ class Stockage:
 
     def fichiers_du_tournoi(self, tournoi_id: str) -> list[Path]:
         """Tous les fichiers que ce bot a écrits pour un tournoi : état (et son .tmp),
-        parties privées de chaque round, archives. Jamais le fichier d'inscription."""
+        parties privées de chaque round, archives, salon de /start_tournament_init.
+        Jamais le fichier d'inscription."""
         tournoi_id = _verifier_id(tournoi_id)
         # « <id>_ » : un autre tournoi dont l'ID commence pareil (ex. 12 et 123) n'est pas pris.
         fichiers = [self.dossier_etats / f"{tournoi_id}.json", self.dossier_etats / f"{tournoi_id}.json.tmp"]
         fichiers += self.dossier_pp.glob(f"{tournoi_id}_*")
         fichiers += self.dossier_archives.glob(f"{tournoi_id}_*")
+        fichiers += [self.dossier_salons / f"{tournoi_id}.json", self.dossier_salons / f"{tournoi_id}.json.tmp"]
         return sorted(f for f in fichiers if f.is_file())
 
     def supprimer_tournoi(self, tournoi_id: str) -> list[Path]:

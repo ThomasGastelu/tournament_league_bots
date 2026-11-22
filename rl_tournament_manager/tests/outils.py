@@ -75,6 +75,7 @@ class FausseMessagerie:
         self.salons_supprimes: list[str] = []
         self.suppression_salon_possible = True  # False : comme sans « Gérer les salons »
         self.journaux: list[str] = []      # messages d'information de LOG_CHANNEL
+        self.messages_salons: list[tuple[str, str, bool]] = []  # (salon, texte, @here)
         self.resultats_rondes: list[list] = []  # récaps de fin de round (SALON_RESULTATS)
         self.textes_resultats: list[str] = []   # autres messages du salon des résultats (lancement)
         self.mps: list[tuple[str, str]] = []
@@ -140,6 +141,13 @@ class FausseMessagerie:
         if isinstance(self.salon_discussion, Exception):
             raise self.salon_discussion
         return self.salon_discussion
+
+    async def salon_existe(self, salon_id) -> bool:
+        return str(salon_id) not in self.salons_supprimes
+
+    async def message_salon(self, salon_id, texte, *, mentionner_here=False) -> bool:
+        self.messages_salons.append((str(salon_id), texte, mentionner_here))
+        return True
 
     async def changer_acces_salon(self, etat, *, ajouter=None, retirer=None) -> bool:
         self.acces_salon.append((ajouter, retirer))

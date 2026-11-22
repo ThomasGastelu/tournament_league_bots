@@ -1,4 +1,4 @@
-"""Salon de discussion créé par /start_tournament_rl (joueurs du tournoi + admins)."""
+"""Salon de discussion créé par /start_tournament_init (joueurs du tournoi + admins)."""
 
 import asyncio
 import logging
@@ -239,9 +239,11 @@ def gestionnaire_test(tmp_path: Path, messagerie: FausseMessagerie) -> tuple[Ges
     return g, stockage
 
 
-def jouer(tmp_path: Path, messagerie: FausseMessagerie) -> tuple[dict, dict]:
+def jouer(tmp_path: Path, messagerie: FausseMessagerie, *, init: bool = True) -> tuple[dict, dict]:
     async def scenario():
         g, stockage = gestionnaire_test(tmp_path, messagerie)
+        if init:
+            await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
         etat = await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
         return etat, stockage.charger_etat(TID)
@@ -249,27 +251,90 @@ def jouer(tmp_path: Path, messagerie: FausseMessagerie) -> tuple[dict, dict]:
     return asyncio.run(scenario())
 
 
-def test_demarrer_cree_le_salon_avant_les_mp(tmp_path):
+def test_init_cree_le_salon_et_previent_les_joueurs(tmp_path):
     messagerie = FausseMessagerie()
     etat_lance, etat = jouer(tmp_path, messagerie)
 
-    assert messagerie.salons_crees == [(TID, 0)]  # une seule fois, avant le premier MP
+    assert messagerie.salons_crees == [(TID, 0)]  # une seule fois, par /start_tournament_init
+    assert messagerie.messages_salons == [
+        ("4242", "@here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀", True)]
+    # /start_tournament_rl reprend le salon sans en créer un autre.
     assert etat_lance["salon_discussion_id"] == "4242"
     assert etat["salon_discussion_id"] == "4242"  # gardé dans le JSON
     assert etat["statut"] == L.TERMINE
 
 
-@pytest.mark.parametrize("echec", [None, RuntimeError("Discord en panne")])
-def test_salon_pas_cree_le_tournoi_continue(tmp_path, caplog, echec):
-    messagerie = FausseMessagerie(salon_discussion=echec)
-    with caplog.at_level(logging.ERROR):
-        etat_lance, etat = jouer(tmp_path, messagerie)
+def test_start_sans_init_ne_cree_pas_de_salon(tmp_path):
+    messagerie = FausseMessagerie()
+    etat_lance, etat = jouer(tmp_path, messagerie, init=False)
 
-    assert etat_lance["salon_discussion_id"] is None
-    assert etat["salon_discussion_id"] is None
-    assert etat["statut"] == L.TERMINE
+    assert messagerie.salons_crees == [] and messagerie.messages_salons == []
+    assert etat_lance["salon_discussion_id"] is None and etat["statut"] == L.TERMINE
+
+
+def test_init_deux_fois_refusee_sauf_si_le_salon_a_ete_supprime(tmp_path):
+    async def scenario():
+        messagerie = FausseMessagerie()
+        g, stockage = gestionnaire_test(tmp_path, messagerie)
+        init = await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
+        with pytest.raises(L.ErreurTournoi, match="existe déjà"):
+            await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
+        messagerie.salons_supprimes.append("4242")  # supprimé à la main dans Discord
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
+        with pytest.raises(L.ErreurTournoi, match="Aucun tournoi"):
+            await g.initialiser(TID, serveur_id="autre", par=ADMIN)
+        return init, stockage.charger_init(TID), messagerie
+
+    init, sur_disque, messagerie = asyncio.run(scenario())
+    assert init["salon_discussion_id"] == "4242" and sur_disque["lance_par"] == ADMIN
+    assert len(messagerie.salons_crees) == 2
+    assert len(init["equipes"]) == 4
+
+
+@pytest.mark.parametrize("echec", [None, RuntimeError("Discord en panne")])
+def test_init_echec_explique(tmp_path, caplog, echec):
+    async def scenario():
+        g, stockage = gestionnaire_test(tmp_path, FausseMessagerie(salon_discussion=echec))
+        with pytest.raises(L.ErreurTournoi, match="pas pu être créé"):
+            await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
+        return stockage
+
+    with caplog.at_level(logging.ERROR):
+        stockage = asyncio.run(scenario())
+    assert stockage.charger_init(TID) is None
     if echec is not None:
         assert "impossible de créer le salon de discussion" in caplog.text
+
+
+def test_init_refusee_si_le_tournoi_est_lance(tmp_path):
+    async def scenario():
+        g, _ = gestionnaire_test(tmp_path, FausseMessagerie(clic_auto=False))
+        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        with pytest.raises(L.ErreurTournoi, match="déjà lancé"):
+            await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
+        await g.fermer()
+
+    asyncio.run(scenario())
+
+
+def test_bienvenue_avant_le_lancement():
+    tournoi = tournoi_inscription(2, TID)
+    init = L.etat_init(tournoi, L.equipes_participantes(tournoi), par=ADMIN, maintenant="t")
+    texte = "\n".join(M.textes_bienvenue_salon(init))
+    assert "2 équipes · salon ouvert par" in texte and "<@1010>" in texte
+
+
+def test_remise_a_zero_d_un_tournoi_seulement_initialise(tmp_path):
+    async def scenario():
+        messagerie = FausseMessagerie()
+        g, stockage = gestionnaire_test(tmp_path, messagerie)
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
+        bilan = await g.reinitialiser(TID, serveur_id=SERVEUR, par=ADMIN)
+        return bilan, stockage, messagerie
+
+    bilan, stockage, messagerie = asyncio.run(scenario())
+    assert bilan["salons_supprimes"] == ["4242"] and messagerie.salons_supprimes == ["4242"]
+    assert stockage.charger_init(TID) is None and stockage.fichiers_du_tournoi(TID) == []
 
 
 # --------------------------------------------------------------------------- #
