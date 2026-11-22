@@ -28,7 +28,7 @@ import random
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import discord
 
@@ -37,6 +37,9 @@ from . import messages as M
 from .journal import HORS_JOURNAL
 from .pp import generer_parties
 from .stockage import Stockage
+
+if TYPE_CHECKING:
+    from .simulation import Simulation
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +103,7 @@ class GestionnaireTournois:
         pp_forcee_zone_2: tuple[str, str] | None = None,
         generer_pp: Callable[[Path, int, Path], list[dict]] = generer_parties,
         rng: random.Random | None = None,
+        simulation: Simulation | None = None,
     ) -> None:
         self.stockage = stockage
         self.messagerie = messagerie
@@ -111,6 +115,9 @@ class GestionnaireTournois:
         self.pp_forcee_zone_2 = pp_forcee_zone_2
         self.generer_pp = generer_pp
         self.rng = rng or random.Random()
+        self.simulation = simulation  # SIMULATION=1 : clics et déclarations automatiques (simulation.py)
+        if simulation is not None:
+            simulation.brancher(self)
         self._taches: dict[str, asyncio.Task] = {}
         self._taches_matchs: dict[tuple[str, int, int], asyncio.Task] = {}
         self._validations: dict[str, asyncio.Event] = {}
@@ -415,6 +422,8 @@ class GestionnaireTournois:
         for tache in taches:
             tache.cancel()
         await asyncio.gather(*taches, return_exceptions=True)
+        if self.simulation is not None:
+            await self.simulation.fermer()
 
     # ------------------------------------------------------------------- #
     # Boucle d'un tournoi
@@ -487,6 +496,8 @@ class GestionnaireTournois:
         ronde = L.trouver_ronde(etat, numero)
         taches = []
         for match in ronde["matchs"]:
+            if match["statut"] == L.MATCH_A_VALIDER and self.simulation is not None:
+                self.simulation.declarations_demandees(etat, numero, match)  # reprise après un redémarrage
             if match["statut"] in L.MATCHS_A_JOUER:
                 cle = (tournoi_id, numero, match["zone"])
                 tache = asyncio.create_task(self._jouer_match(tournoi_id, numero, match["zone"]),
@@ -531,6 +542,8 @@ class GestionnaireTournois:
         evenement = self._pp_creees.setdefault(cle, asyncio.Event())  # avant les MP : le clic peut être rapide
         try:
             await self._envoyer_infos_match(etat, numero, match, reprise)
+            if self.simulation is not None:
+                self.simulation.match_lance(etat, numero, match)
             await self._attendre_pp_creee(tournoi_id, numero, zone, evenement)
         finally:
             if self._pp_creees.get(cle) is evenement:
@@ -563,6 +576,8 @@ class GestionnaireTournois:
         log.info("Tournoi %s, round %s, zone %s : délai passé, déclaration du score demandée aux équipes",
                  tournoi_id, numero, zone)
         await self._demander_declarations(etat, numero, match)
+        if self.simulation is not None:
+            self.simulation.declarations_demandees(etat, numero, match)
 
     # ------------------------------------------------------------------- #
     # Messages

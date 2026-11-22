@@ -29,6 +29,10 @@ class Config:
     rappel_clic_pp: float = 180       # rappel au capitaine qui n'a pas cliqué « Partie privée créée »
     attente_clic_pp_max: float = 600  # sans clic, le délai avant la demande de score démarre quand même
     delai_declaration: float = 360    # après le clic : attente avant le MP « Déclarer le score »
+    simulation: bool = False          # SIMULATION=1 : clics et déclarations automatiques (simulation.py)
+    simulation_delai_clic: float = 5
+    simulation_delai_declaration: float = 5
+    simulation_proba_desaccord: float = 0
     pp_forcee_zone_2: tuple[str, str] | None = None  # TESTS : (nom, mot de passe) imposés à la zone 2
 
 
@@ -81,6 +85,16 @@ def _id_salon(nom: str) -> int | None:
     return int(brut) if brut else None
 
 
+def _oui_non(nom: str) -> bool:
+    """1 / oui / true → True ; vide / 0 / non / false → False."""
+    brut = os.getenv(nom, "").strip().lower()
+    if brut in ("", "0", "non", "no", "false"):
+        return False
+    if brut in ("1", "oui", "yes", "true"):
+        return True
+    raise ErreurConfig(f"{nom} doit valoir 1 (activé) ou 0 (désactivé) (valeur actuelle : {brut!r}).")
+
+
 def _pp_forcee(nom: str) -> tuple[str, str] | None:
     """« nom:mot_de_passe » (sans « : », le mot de passe = le nom). Vide : None."""
     brut = os.getenv(nom, "").strip()
@@ -125,6 +139,10 @@ def charger_config() -> Config:
         rappel_clic_pp=_nombre("RAPPEL_CLIC_PP", 180.0, 0),
         attente_clic_pp_max=_nombre("ATTENTE_CLIC_PP_MAX", 600.0, 0),
         delai_declaration=_nombre("DELAI_DECLARATION", 360.0, 0),
+        simulation=_oui_non("SIMULATION"),
+        simulation_delai_clic=_nombre("SIMULATION_DELAI_CLIC", 5.0, 0),
+        simulation_delai_declaration=_nombre("SIMULATION_DELAI_DECLARATION", 5.0, 0),
+        simulation_proba_desaccord=_nombre("SIMULATION_PROBA_DESACCORD", 0.0, 0, 1),
         pp_forcee_zone_2=_pp_forcee("PP_FORCEE_ZONE_2"),
         log_channel=_id_salon("LOG_CHANNEL"),
     )

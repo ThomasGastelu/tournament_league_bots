@@ -16,6 +16,7 @@ from .config import Config, ErreurConfig, charger_config
 from .declaration import BoutonDeclaration, BoutonPartieCreee
 from .deroulement import GestionnaireTournois, MessagerieDiscord, permissions_manquantes
 from .journal import HORS_JOURNAL, JournalDiscord
+from .simulation import Simulation
 from .stockage import Stockage
 
 log = logging.getLogger("tournament_manager")
@@ -25,6 +26,11 @@ log = logging.getLogger("tournament_manager")
 PERMISSIONS = 117776
 # Loggers dont les avertissements et erreurs sont copiés dans LOG_CHANNEL.
 LOGGERS_JOURNAL = ("bot_tournament_manager", "tournament_manager")
+
+
+AVERTISSEMENT_SIMULATION = ("⚠️ Mode simulation (SIMULATION=1) : les capitaines « cliquent » et les équipes "
+                            "déclarent les scores toutes seules. Les vrais MP partent quand même : à utiliser sur "
+                            "un tournoi de test, et à remettre à 0 avant un vrai tournoi.")
 
 
 class BotTournoi(discord.Client):
@@ -44,6 +50,9 @@ class BotTournoi(discord.Client):
             attente_clic_pp_max=config.attente_clic_pp_max,
             delai_declaration=config.delai_declaration,
             pp_forcee_zone_2=config.pp_forcee_zone_2,
+            simulation=Simulation(delai_clic=config.simulation_delai_clic,
+                                  delai_declaration=config.simulation_delai_declaration,
+                                  proba_desaccord=config.simulation_proba_desaccord) if config.simulation else None,
         )
         self.journal = JournalDiscord(self.messagerie.journal) if config.log_channel else None
         self._demarrage_annonce = False
@@ -96,6 +105,8 @@ class BotTournoi(discord.Client):
         if self._demarrage_annonce:
             return  # on_ready revient après chaque reconnexion
         self._demarrage_annonce = True
+        if self.config.simulation:
+            log.warning(AVERTISSEMENT_SIMULATION)
 
         annonces = self.verifier_salon("SALON_ANNONCES", self.config.salon_annonces, "les annonces")
         if not self.config.log_channel:

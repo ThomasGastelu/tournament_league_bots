@@ -219,9 +219,33 @@ Dans le `.env` (valeurs en secondes) :
 | `ATTENTE_CLIC_PP_MAX` | 600 | Sans clic, le délai avant la demande de score démarre quand même (avec une alerte). |
 | `DELAI_DECLARATION` | 360 | Attente après le clic avant le MP « Déclarer le score » (6 min). |
 
-Pour tester un tournoi sans jouer : `DELAI_DECLARATION=5` et `ATTENTE_CLIC_PP_MAX=30`, puis déclare les scores toi-même avec les boutons (ou `/set_result_tournament_rl`).
+Pour tester un tournoi sans jouer : `DELAI_DECLARATION=5` et `ATTENTE_CLIC_PP_MAX=30`, puis déclare les scores toi-même avec les boutons (ou `/set_result_tournament_rl`), ou active le mode simulation ci-dessous.
 
-Le bot n'utilise plus `rl_api_pp_connector` : les anciens réglages `OBSERVATEUR`, `RL_*` et `SIMULATION_*` du `.env` sont ignorés et peuvent être effacés.
+### Mode simulation (`SIMULATION=1`)
+
+Le tournoi se joue tout seul, sans joueurs (code : `simulation.py`) :
+1. le capitaine « clique » sur **Partie privée créée** après `SIMULATION_DELAI_CLIC` secondes ;
+2. le bot attend `DELAI_DECLARATION` comme en vrai (mets-le à 5 pour aller vite), puis envoie les MP de déclaration ;
+3. chaque équipe déclare un score tiré au hasard (jamais d'égalité) après `SIMULATION_DELAI_DECLARATION` secondes. Les deux équipes déclarent le même score : le match est validé tout seul.
+
+| Réglage | Par défaut | Rôle |
+|---|---|---|
+| `SIMULATION` | 0 | 1 pour activer le mode simulation. |
+| `SIMULATION_DELAI_CLIC` | 5 | Secondes avant le clic automatique « Partie privée créée ». |
+| `SIMULATION_DELAI_DECLARATION` | 5 | Secondes entre le MP de déclaration et les déclarations automatiques. |
+| `SIMULATION_PROBA_DESACCORD` | 0 | Probabilité (0 à 1) que les deux équipes déclarent des scores différents : alerte dans `LOG_CHANNEL`, et un admin tranche avec `/set_result_tournament_rl`. |
+
+⚠️ Les vrais MP partent quand même aux joueurs inscrits : utilise-le sur un tournoi de test, et remets `SIMULATION=0` avant un vrai tournoi. Au démarrage, la console et `LOG_CHANNEL` le rappellent.
+
+Pour voir des scores simulés sans Discord :
+```powershell
+.venv\Scripts\python -m bot_tournament_manager.simulation --matchs 5
+```
+```bash
+.venv/bin/python -m bot_tournament_manager.simulation --matchs 5
+```
+
+Le bot n'utilise plus `rl_api_pp_connector` : les anciens réglages `OBSERVATEUR`, `RL_*`, `SIMULATION_DUREE_MIN`, `SIMULATION_DUREE_MAX`, `SIMULATION_PROBA_SANS_GAGNANT` et `SIMULATION_PROBA_COULEURS_INVERSEES` du `.env` sont ignorés et peuvent être effacés.
 
 ## Installation
 

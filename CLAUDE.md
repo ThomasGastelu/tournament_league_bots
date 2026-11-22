@@ -60,7 +60,7 @@ python rl_join_bot.py --name 111 --password 111 --resolution 1920x1200 --languag
 python rl_match_watcher.py --output resultats.jsonl                                 # lecture seule du score, partie rejointe à la main
 ```
 
-Pour tester un tournoi complet sans jouer : `DELAI_DECLARATION=5` et `ATTENTE_CLIC_PP_MAX=30` dans le `.env` de `tournament_manager`, puis déclarer les scores avec les boutons (ou `/set_result_tournament_rl`).
+Pour tester un tournoi complet sans jouer : `SIMULATION=1` et `DELAI_DECLARATION=5` dans le `.env` de `tournament_manager` (clics et déclarations automatiques, `SIMULATION_PROBA_DESACCORD` pour tester les désaccords ; les vrais MP partent quand même). Scores simulés sans Discord : `.venv\Scripts\python -m bot_tournament_manager.simulation`.
 
 `PP_FORCEE_ZONE_2` (`.env` de `tournament_manager`, **tests uniquement**) impose le nom et le mot de passe de la partie privée de la zone 2 (`nom:mot_de_passe`, ou `nom` seul si les deux sont identiques), par exemple pour tester sur une partie déjà créée. Le bot logge un avertissement à chaque round. À laisser vide pour un vrai tournoi.
 
@@ -92,6 +92,7 @@ Spécifique à `bot_inscription_manager` : `inscription.py` (bouton S'inscrire, 
 Spécifique à `bot_tournament_manager` :
 - `config.py` : lecture et validation du `.env` (`Config`).
 - `deroulement.py` : `GestionnaireTournois`, une tâche asyncio par tournoi ; l'état est relu et réécrit à chaque étape, `reprendre()` relance les tournois au redémarrage. Après le clic « Partie privée créée » (ou `ATTENTE_CLIC_PP_MAX` sans clic), le match attend `DELAI_DECLARATION` (360 s) puis passe `a_valider` et les joueurs reçoivent le bouton « Déclarer le score » ; le départ est noté dans `chrono_declaration` pour reprendre le temps restant après un redémarrage. `Messagerie` abstrait l'envoi (`MessagerieDiscord` en vrai, `FausseMessagerie` en test).
+- `simulation.py` : mode `SIMULATION=1` ; `Simulation` « clique » et déclare les scores en passant par `signaler_pp_creee` / `declarer_score` (branchée sur `GestionnaireTournois(simulation=…)`, appelée après les MP du match et après les MP de déclaration).
 - `declaration.py` : boutons « ✅ Partie privée créée » et « 📝 Déclarer le score » (`DynamicItem`, custom_id = tournoi/round/zone/équipe).
 - `journal.py` : recopie avertissements et erreurs dans `LOG_CHANNEL` (regroupés ; `extra=HORS_JOURNAL` pour ne pas boucler).
 - `pp.py` : appelle `generer_pp_names.py`.
