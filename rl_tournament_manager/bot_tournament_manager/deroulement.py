@@ -641,7 +641,7 @@ class GestionnaireTournois:
                                          confirmation=equipe["id"])
         if promues and self.simulation is not None:
             self.simulation.confirmations_demandees(init, promues)
-        if promues or termine:  # positions changées, ou fin des validations
+        if promues:  # la liste d'attente avance (pas de MP à la fin des validations)
             for position, equipe in enumerate(init["confirmation"]["attente"], start=1):
                 for joueur in equipe["joueurs"]:
                     await self.messagerie.mp(init, joueur["id"], M.mp_toujours_en_attente(init, equipe, position))

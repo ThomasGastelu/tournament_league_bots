@@ -31,7 +31,7 @@ Les joueurs n'ont pas de commande à taper, ils ont des boutons dans leurs MP :
 À la fin du délai (ou dès que toutes les équipes ont validé) :
 - les équipes qui n'ont pas validé **perdent leur place** (MP) et leur accès au salon de discussion ;
 - les premières équipes de la liste d'attente **prennent ces places**, dans l'ordre : MP « 🎉 ton équipe participe au tournoi » avec le **même bouton ✅ Valider ma participation** et un **nouveau délai** de `delai_confirmation` minutes, et accès au salon (il faut au bot **Gérer les rôles**, sinon `LOG_CHANNEL` dit qui ajouter à la main) ;
-- les équipes qui restent en liste d'attente reçoivent leur nouvelle position ;
+- les équipes qui restent en liste d'attente reçoivent leur nouvelle position (seulement quand la liste avance : pas de MP à la fin des validations) ;
 - une équipe montée qui ne valide pas à temps perd la place à son tour, et l'équipe suivante de la liste d'attente monte (même délai). Ça continue jusqu'à ce que toutes les équipes aient validé ou que la liste d'attente soit vide ; `LOG_CHANNEL` note chaque étape ;
 - à la toute fin, le bilan est posté dans le salon de discussion et dans `LOG_CHANNEL`, et `/start_tournament_rl` peut être lancé.
 

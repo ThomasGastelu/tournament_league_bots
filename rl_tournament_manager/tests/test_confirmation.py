@@ -140,7 +140,7 @@ def test_fin_du_delai_la_liste_d_attente_prend_les_places_et_doit_valider(tmp_pa
     assert any("Fin des validations" in j for j in messagerie.journaux)
 
 
-def test_liste_d_attente_qui_reste_est_prevenue(tmp_path):
+def test_liste_d_attente_prevenue_quand_elle_avance_pas_a_la_fin(tmp_path):
     async def scenario():
         g, _, messagerie = creer(tmp_path, inscription(nb_inscrites=2, nb_attente=3))
         await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN, delai_confirmation=DELAI)
@@ -153,8 +153,10 @@ def test_liste_d_attente_qui_reste_est_prevenue(tmp_path):
     messagerie = asyncio.run(scenario())
     assert any("participe au tournoi" in t for t in messagerie.mps_de(joueurs(3)[0]))
     assert any("maintenant **1er**" in t for t in messagerie.mps_de(joueurs(4)[0]))
-    assert any("reste **1er** sur la liste d'attente" in t for t in messagerie.mps_de(joueurs(4)[0]))
-    assert any("reste **2e** sur la liste d'attente" in t for t in messagerie.mps_de(joueurs(5)[0]))
+    assert any("maintenant **2e**" in t for t in messagerie.mps_de(joueurs(5)[0]))
+    # Pas de MP « fin des validations » à la liste d'attente.
+    assert not any("fin des validations" in t for _, t in messagerie.mps)
+    assert len(messagerie.mps_de(joueurs(4)[0])) == 2  # sa position au départ, puis « tu avances »
 
 
 def test_tout_le_monde_valide_le_delai_se_termine_tout_de_suite(tmp_path):
@@ -169,7 +171,7 @@ def test_tout_le_monde_valide_le_delai_se_termine_tout_de_suite(tmp_path):
     init, messagerie = asyncio.run(scenario())
     assert init["confirmation"]["terminee"] and init["confirmation"]["perdues"] == []
     assert messagerie.acces_salon == []
-    assert any("reste **1er**" in t for t in messagerie.mps_de(joueurs(5)[0]))
+    assert len(messagerie.mps_de(joueurs(5)[0])) == 1  # seulement sa position au départ
 
 
 def test_nombre_impair_apres_le_delai_refuse_le_lancement(tmp_path):

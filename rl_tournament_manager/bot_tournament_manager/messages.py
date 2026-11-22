@@ -571,12 +571,10 @@ def mp_place_gagnee(init: dict, equipe: dict) -> str:
 
 
 def mp_toujours_en_attente(init: dict, equipe: dict, position: int) -> str:
-    if not init["confirmation"]["terminee"]:
-        return (f"⏳ **{_titre(init)}** : la liste d'attente avance, ton équipe **{escape_markdown(equipe['nom'])}** "
-                f"est maintenant **{_rang(position)}**. Si une équipe montée ne valide pas sa participation avant "
-                f"{heure_discord(init['confirmation']['fin'])}, tu avanceras encore.")
-    return (f"⏳ **{_titre(init)}** : fin des validations. Ton équipe **{escape_markdown(equipe['nom'])}** reste "
-            f"**{_rang(position)}** sur la liste d'attente : pas de place libérée pour elle cette fois.")
+    """Liste d'attente, quand des équipes en sont montées (aucun MP à la fin des validations)."""
+    return (f"⏳ **{_titre(init)}** : la liste d'attente avance, ton équipe **{escape_markdown(equipe['nom'])}** "
+            f"est maintenant **{_rang(position)}**. Si une équipe montée ne valide pas sa participation avant "
+            f"{heure_discord(init['confirmation']['fin'])}, tu avanceras encore.")
 
 
 def texte_vague_confirmation(init: dict, perdues: list[dict], promues: list[dict]) -> str:
