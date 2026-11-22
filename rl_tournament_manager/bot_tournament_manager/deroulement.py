@@ -594,17 +594,22 @@ class GestionnaireTournois:
             init = self.stockage.charger_init(tournoi_id)
             if not L.confirmation_en_cours(init):
                 return
-            evenement = self._toutes_validees.setdefault(tournoi_id, asyncio.Event())
-            if L.toutes_validees(init):
-                evenement.set()
-            restant = 0.0
-            try:
-                restant = max(0.0, (datetime.fromisoformat(init["confirmation"]["fin"])
-                                    - datetime.now()).total_seconds())
-            except ValueError:
-                pass
-            await _attendre(evenement, restant)
-            await self._terminer_confirmation(tournoi_id)
+            # Une « vague » par délai : tant que des équipes montent de la liste d'attente, elles ont
+            # à leur tour le même délai pour valider.
+            while L.confirmation_en_cours(init):
+                evenement = self._toutes_validees.setdefault(tournoi_id, asyncio.Event())
+                if L.toutes_validees(init):
+                    evenement.set()
+                restant = 0.0
+                try:
+                    restant = max(0.0, (datetime.fromisoformat(init["confirmation"]["fin"])
+                                        - datetime.now()).total_seconds())
+                except ValueError:
+                    pass
+                await _attendre(evenement, restant)
+                evenement.clear()
+                await self._terminer_confirmation(tournoi_id)
+                init = self.stockage.charger_init(tournoi_id)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -616,10 +621,13 @@ class GestionnaireTournois:
             init = self.stockage.charger_init(tournoi_id)
             if not L.confirmation_en_cours(init):
                 return
-            perdues, promues = L.terminer_confirmation(init)
+            fin = (datetime.now() + timedelta(minutes=init["confirmation"]["delai_minutes"])).isoformat()
+            perdues, promues = L.terminer_confirmation(init, fin_suivante=fin)
             self.stockage.sauvegarder_init(init)
-        log.info("Tournoi %s : fin de la validation des participations (%s place(s) perdue(s), %s équipe(s) "
-                 "montée(s) de la liste d'attente)", tournoi_id, len(perdues), len(promues))
+        termine = init["confirmation"]["terminee"]
+        log.info("Tournoi %s : fin d'un délai de validation (%s place(s) perdue(s), %s équipe(s) montée(s) de la "
+                 "liste d'attente%s)", tournoi_id, len(perdues), len(promues),
+                 "" if termine else ", qui doivent valider à leur tour")
         for equipe in perdues:
             for joueur in equipe["joueurs"]:
                 await self.messagerie.mp(init, joueur["id"], M.mp_place_perdue(init, equipe))
@@ -629,10 +637,17 @@ class GestionnaireTournois:
             for joueur in equipe["joueurs"]:
                 if init.get("salon_discussion_id"):
                     await self.messagerie.changer_acces_salon(init, ajouter=joueur["id"])
-                await self.messagerie.mp(init, joueur["id"], M.mp_place_gagnee(init, equipe))
-        for position, equipe in enumerate(init["confirmation"]["attente"], start=1):
-            for joueur in equipe["joueurs"]:
-                await self.messagerie.mp(init, joueur["id"], M.mp_toujours_en_attente(init, equipe, position))
+                await self.messagerie.mp(init, joueur["id"], M.mp_place_gagnee(init, equipe),
+                                         confirmation=equipe["id"])
+        if promues and self.simulation is not None:
+            self.simulation.confirmations_demandees(init, promues)
+        if promues or termine:  # positions changées, ou fin des validations
+            for position, equipe in enumerate(init["confirmation"]["attente"], start=1):
+                for joueur in equipe["joueurs"]:
+                    await self.messagerie.mp(init, joueur["id"], M.mp_toujours_en_attente(init, equipe, position))
+        if not termine:
+            await self.messagerie.journal(M.texte_vague_confirmation(init, perdues, promues))
+            return
         bilan = M.texte_fin_confirmation(init, perdues, promues)
         if init.get("salon_discussion_id"):
             await self.messagerie.message_salon(init["salon_discussion_id"], bilan)

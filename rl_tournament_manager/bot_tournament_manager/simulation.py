@@ -72,9 +72,10 @@ class Simulation:
         capitaine = L.equipe(etat, match["equipe_a"])["capitaine_id"]
         self._lancer(self._cliquer(etat["tournoi_id"], numero, match["zone"], capitaine))
 
-    def confirmations_demandees(self, init: dict) -> None:
-        """/start_tournament_init : le capitaine de chaque équipe va « valider » sa participation."""
-        for equipe in init["equipes"].values():
+    def confirmations_demandees(self, init: dict, equipes: list[dict] | None = None) -> None:
+        """/start_tournament_init (ou équipes montées de la liste d'attente) : le capitaine de chaque
+        équipe va « valider » sa participation."""
+        for equipe in equipes if equipes is not None else init["equipes"].values():
             self._lancer(self._valider(init["tournoi_id"], equipe["id"], equipe["capitaine_id"]))
 
     def declarations_demandees(self, etat: dict, numero: int, match: dict) -> None:

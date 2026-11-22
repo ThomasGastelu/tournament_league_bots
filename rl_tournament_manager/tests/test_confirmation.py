@@ -98,29 +98,45 @@ def test_un_joueur_valide_pour_toute_l_equipe(tmp_path):
     assert any("a validé la participation" in t for t in messagerie.mps_de(joueurs(1)[1]))
 
 
-def test_fin_du_delai_la_liste_d_attente_prend_les_places(tmp_path):
+def test_fin_du_delai_la_liste_d_attente_prend_les_places_et_doit_valider(tmp_path):
     async def scenario():
-        g, stockage, messagerie = creer(tmp_path)
+        g, stockage, messagerie = creer(tmp_path, inscription(nb_inscrites=4, nb_attente=3))
         await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN, delai_confirmation=DELAI)
         for equipe_id in (1, 3):  # les équipes 2 et 4 ne valident pas
             await g.valider_participation(TID, equipe_id, par=joueurs(equipe_id)[0])
-        await asyncio.wait_for(g.attendre_confirmation(TID), 5)
+        # Premier délai passé : 5 et 6 montent et reçoivent le bouton à leur tour.
+        await attendre_que(lambda: stockage.charger_init(TID)["confirmation"]["promues"] == [5, 6])
+        apres_premier = stockage.charger_init(TID)
         with pytest.raises(L.ErreurTournoi, match="Le délai est passé"):
             await g.valider_participation(TID, 2, par=joueurs(2)[0])
+        with pytest.raises(L.ErreurTournoi, match="peuvent encore valider"):
+            await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await g.valider_participation(TID, 5, par=joueurs(5)[1])  # 6 ne valide pas : 7 prend sa place
+        await attendre_que(lambda: stockage.charger_init(TID)["confirmation"]["promues"] == [5, 6, 7], 8)
+        await g.valider_participation(TID, 7, par=joueurs(7)[0])  # tout le monde a validé : fin tout de suite
+        await asyncio.wait_for(g.attendre_confirmation(TID), 2)
         etat = await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await asyncio.wait_for(g.attendre(TID), 5)
-        return stockage.charger_init(TID), etat, messagerie
+        return apres_premier, stockage.charger_init(TID), etat, messagerie
 
-    init, etat, messagerie = asyncio.run(scenario())
-    assert init["confirmation"]["perdues"] == [2, 4] and init["confirmation"]["promues"] == [5, 6]
-    assert sorted(etat["equipes"]) == ["1", "3", "5", "6"]
+    apres_premier, init, etat, messagerie = asyncio.run(scenario())
+    assert not apres_premier["confirmation"]["terminee"] and sorted(apres_premier["equipes"]) == ["1", "3", "5", "6"]
+    assert init["confirmation"]["terminee"] and init["confirmation"]["perdues"] == [2, 4, 6]
+    assert sorted(etat["equipes"]) == ["1", "3", "5", "7"]
     assert any("perd sa place" in t for t in messagerie.mps_de(joueurs(2)[0]))
-    assert any("participe au tournoi" in t for t in messagerie.mps_de(joueurs(6)[1]))
-    # Accès au salon : retiré aux équipes 2 et 4, donné aux équipes 5 et 6.
-    assert sorted(r for _, r in messagerie.acces_salon if r) == sorted(joueurs(2) + joueurs(4))
-    assert sorted(a for a, _ in messagerie.acces_salon if a) == sorted(joueurs(5) + joueurs(6))
+    assert any("perd sa place" in t for t in messagerie.mps_de(joueurs(6)[0]))
+    # Les équipes montées ont le même bouton « Valider ma participation ».
+    for equipe_id in (5, 6, 7):
+        assert any("participe au tournoi" in t and "Valide ta participation" in t
+                   for t in messagerie.mps_de(joueurs(equipe_id)[1]))
+        assert (joueurs(equipe_id)[1], equipe_id) in messagerie.boutons_confirmation
+    assert any("maintenant **1er**" in t for t in messagerie.mps_de(joueurs(7)[0]))
+    # Accès au salon : retiré aux équipes 2, 4 et 6, donné aux équipes 5, 6 et 7.
+    assert sorted(r for _, r in messagerie.acces_salon if r) == sorted(joueurs(2) + joueurs(4) + joueurs(6))
+    assert sorted(a for a, _ in messagerie.acces_salon if a) == sorted(joueurs(5) + joueurs(6) + joueurs(7))
     bilan = [t for _, t, _ in messagerie.messages_salons if "Fin des validations" in t]
-    assert bilan and "Equipe2" in bilan[0] and "Equipe5" in bilan[0]
+    assert len(bilan) == 1 and "Equipe5" in bilan[0] and "Equipe7" in bilan[0]
+    assert any("à valider avant" in j for j in messagerie.journaux)
     assert any("Fin des validations" in j for j in messagerie.journaux)
 
 
@@ -129,11 +145,14 @@ def test_liste_d_attente_qui_reste_est_prevenue(tmp_path):
         g, _, messagerie = creer(tmp_path, inscription(nb_inscrites=2, nb_attente=3))
         await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN, delai_confirmation=DELAI)
         await g.valider_participation(TID, 1, par=joueurs(1)[0])  # l'équipe 2 ne valide pas
-        await asyncio.wait_for(g.attendre_confirmation(TID), 5)
+        await attendre_que(lambda: (joueurs(3)[0], 3) in messagerie.boutons_confirmation)
+        await g.valider_participation(TID, 3, par=joueurs(3)[0])
+        await asyncio.wait_for(g.attendre_confirmation(TID), 2)
         return messagerie
 
     messagerie = asyncio.run(scenario())
     assert any("participe au tournoi" in t for t in messagerie.mps_de(joueurs(3)[0]))
+    assert any("maintenant **1er**" in t for t in messagerie.mps_de(joueurs(4)[0]))
     assert any("reste **1er** sur la liste d'attente" in t for t in messagerie.mps_de(joueurs(4)[0]))
     assert any("reste **2e** sur la liste d'attente" in t for t in messagerie.mps_de(joueurs(5)[0]))
 
@@ -183,7 +202,8 @@ def test_le_delai_reprend_apres_un_redemarrage(tmp_path):
     asyncio.run(avant())
     repris, init = asyncio.run(apres())
     assert any(TID in r for r in repris)
-    assert init["confirmation"]["terminee"] and init["confirmation"]["perdues"] == [1, 2, 3, 4]
+    # Personne ne valide : les équipes 5 et 6 montent puis perdent leur place à leur tour.
+    assert init["confirmation"]["terminee"] and init["confirmation"]["perdues"] == [1, 2, 3, 4, 5, 6]
 
 
 def test_simulation_valide_les_participations(tmp_path):
@@ -205,11 +225,17 @@ def test_terminer_confirmation_dans_l_ordre_de_la_liste_d_attente():
                        attente=L.equipes_en_attente(tournoi), delai_confirmation=10)
     L.valider_participation(init, 2, joueurs(2)[0], maintenant="2026-11-14T15:01:00")
     L.valider_participation(init, 4, joueurs(4)[1], maintenant="2026-11-14T15:02:00")
-    perdues, promues = L.terminer_confirmation(init)
+    perdues, promues = L.terminer_confirmation(init, fin_suivante="2026-11-14T15:20:00")
     assert [e["id"] for e in perdues] == [1, 3] and [e["id"] for e in promues] == [5, 6]
     assert sorted(init["equipes"]) == ["2", "4", "5", "6"]
     assert [e["id"] for e in init["confirmation"]["attente"]] == [7]
-    assert L.terminer_confirmation(init) == ([], [])  # une seule fois
+    # Les équipes montées doivent valider à leur tour, avant la nouvelle fin.
+    assert not init["confirmation"]["terminee"] and init["confirmation"]["fin"] == "2026-11-14T15:20:00"
+    L.valider_participation(init, 5, joueurs(5)[0], maintenant="2026-11-14T15:12:00")
+    L.valider_participation(init, 6, joueurs(6)[0], maintenant="2026-11-14T15:13:00")
+    assert L.terminer_confirmation(init, fin_suivante="2026-11-14T15:30:00") == ([], [])
+    assert init["confirmation"]["terminee"]
+    assert L.terminer_confirmation(init) == ([], [])  # plus rien après la fin
     assert [e["id"] for e in L.equipes_du_lancement(tournoi, init)] == [2, 4, 5, 6]
 
 

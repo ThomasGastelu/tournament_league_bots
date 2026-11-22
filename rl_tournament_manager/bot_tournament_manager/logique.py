@@ -176,9 +176,12 @@ def valider_participation(init: dict, equipe_id: int, joueur_id: str, *, mainten
     return True
 
 
-def terminer_confirmation(init: dict) -> tuple[list[dict], list[dict]]:
+def terminer_confirmation(init: dict, *, fin_suivante: str | None = None) -> tuple[list[dict], list[dict]]:
     """Fin du délai : les équipes qui n'ont pas validé perdent leur place, les premières équipes de la
-    liste d'attente la prennent (dans l'ordre). Renvoie (équipes perdues, équipes promues)."""
+    liste d'attente la prennent (dans l'ordre). Renvoie (équipes perdues, équipes promues).
+
+    Les équipes promues doivent valider à leur tour avant `fin_suivante` (même délai) : la validation
+    continue tant que des équipes montent, et se termine quand aucune place ne change de main."""
     confirmation = init["confirmation"]
     if confirmation["terminee"]:
         return [], []
@@ -192,13 +195,16 @@ def terminer_confirmation(init: dict) -> tuple[list[dict], list[dict]]:
         init["equipes"][str(equipe["id"])] = equipe
     confirmation["perdues"] += [e["id"] for e in perdues]
     confirmation["promues"] += [e["id"] for e in promues]
-    confirmation["terminee"] = True
+    if promues and fin_suivante:
+        confirmation["fin"] = fin_suivante
+    else:
+        confirmation["terminee"] = True
     return perdues, promues
 
 
 def equipes_du_lancement(tournoi: dict, init: dict) -> list[dict]:
-    """Équipes que /start_tournament_rl fait jouer. Après une confirmation : celles qui ont validé et
-    celles montées de la liste d'attente (avec les joueurs à jour du fichier d'inscription).
+    """Équipes que /start_tournament_rl fait jouer. Après une confirmation : celles qui ont validé
+    (montées de la liste d'attente comprises), avec les joueurs à jour du fichier d'inscription.
     Sans confirmation : les équipes inscrites du fichier d'inscription."""
     if not init.get("confirmation"):
         return equipes_participantes(tournoi)
@@ -206,10 +212,10 @@ def equipes_du_lancement(tournoi: dict, init: dict) -> list[dict]:
     equipes = sorted((e for e in tournoi.get("equipes", []) if e["id"] in ids), key=lambda e: e["id"])
     if len(equipes) < 2:
         raise ErreurTournoi(f"Il faut au moins 2 équipes pour lancer le tournoi : seules {len(equipes)} ont "
-                            "validé leur participation (ou sont montées de la liste d'attente).")
+                            "validé leur participation.")
     if len(equipes) % 2:
         raise ErreurTournoi(f"Le nombre d'équipes doit être pair : {len(equipes)} équipes ont validé leur "
-                            "participation (ou sont montées de la liste d'attente), et la liste d'attente est vide. "
+                            "participation, et la liste d'attente est vide. "
                             "Remets le tournoi à zéro avec `/reset_tournament_rl` puis relance "
                             "`/start_tournament_init`.")
     incompletes = [e["nom"] for e in equipes

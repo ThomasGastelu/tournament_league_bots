@@ -538,7 +538,8 @@ def mp_liste_attente(init: dict, equipe_id: int, position: int) -> str:
         f"(jusqu'à {heure_discord(confirmation['fin'])}), tu avanceras dans la liste d'attente.",
     ]
     if position == 1:
-        lignes.append("🌟 Tu es premier : si une équipe ne valide pas, **tu participeras au tournoi**.")
+        lignes.append("🌟 Tu es premier : si une équipe ne valide pas, **tu participeras au tournoi** "
+                      "(tu recevras alors le bouton pour valider ta participation).")
     return "\n".join(lignes)
 
 
@@ -560,14 +561,29 @@ def mp_place_perdue(init: dict, equipe: dict) -> str:
 
 
 def mp_place_gagnee(init: dict, equipe: dict) -> str:
-    salon = f" Rejoins le salon du tournoi : <#{init['salon_discussion_id']}>." if init.get("salon_discussion_id") else ""
+    """Équipe montée de la liste d'attente : elle doit valider à son tour (bouton)."""
+    confirmation = init["confirmation"]
+    salon = f"\nLe salon du tournoi : <#{init['salon_discussion_id']}>." if init.get("salon_discussion_id") else ""
     return (f"🎉 **{_titre(init)}** : une place s'est libérée, ton équipe **{escape_markdown(equipe['nom'])}** "
-            f"**participe au tournoi** !{salon}")
+            f"**participe au tournoi** !\n📝 Valide ta participation dans les "
+            f"**{_minutes(confirmation['delai_minutes'])}** (jusqu'à {heure_discord(confirmation['fin'])}), sinon "
+            f"la place passera à l'équipe suivante de la liste d'attente. Un seul joueur de l'équipe suffit.{salon}")
 
 
 def mp_toujours_en_attente(init: dict, equipe: dict, position: int) -> str:
+    if not init["confirmation"]["terminee"]:
+        return (f"⏳ **{_titre(init)}** : la liste d'attente avance, ton équipe **{escape_markdown(equipe['nom'])}** "
+                f"est maintenant **{_rang(position)}**. Si une équipe montée ne valide pas sa participation avant "
+                f"{heure_discord(init['confirmation']['fin'])}, tu avanceras encore.")
     return (f"⏳ **{_titre(init)}** : fin des validations. Ton équipe **{escape_markdown(equipe['nom'])}** reste "
             f"**{_rang(position)}** sur la liste d'attente : pas de place libérée pour elle cette fois.")
+
+
+def texte_vague_confirmation(init: dict, perdues: list[dict], promues: list[dict]) -> str:
+    """LOG_CHANNEL : des équipes montent de la liste d'attente et doivent valider à leur tour."""
+    noms = lambda equipes: ", ".join(f"**{escape_markdown(e['nom'])}**" for e in equipes)  # noqa: E731
+    return (f"⏳ **{_titre(init)}** : pas validé à temps : {noms(perdues)}. Montée{'s' if len(promues) > 1 else ''} "
+            f"de la liste d'attente : {noms(promues)}, à valider avant {heure_discord(init['confirmation']['fin'])}.")
 
 
 def texte_fin_confirmation(init: dict, perdues: list[dict], promues: list[dict]) -> str:
@@ -578,8 +594,11 @@ def texte_fin_confirmation(init: dict, perdues: list[dict], promues: list[dict])
               f"{'nt' if nb > 1 else ''}."]
     if perdues:
         lignes.append(f"❌ Pas validé à temps : {noms(perdues)}.")
-    if promues:
-        lignes.append(f"🎉 Montée{'s' if len(promues) > 1 else ''} de la liste d'attente : {noms(promues)}.")
+    # Toutes les équipes montées de la liste d'attente (au fil des délais) qui ont validé.
+    montees = promues + [e for e in sorted(init["equipes"].values(), key=lambda e: e["id"])
+                         if e["id"] in init["confirmation"]["promues"] and e not in promues]
+    if montees:
+        lignes.append(f"🎉 Montée{'s' if len(montees) > 1 else ''} de la liste d'attente : {noms(montees)}.")
     if nb % 2 or nb < 2:
         lignes.append(f"⚠️ {nb} équipe{'s' if nb > 1 else ''} : il en faut un nombre pair (au moins 2) pour "
                       "lancer le tournoi.")
