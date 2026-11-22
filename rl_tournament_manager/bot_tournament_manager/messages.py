@@ -625,14 +625,14 @@ def embeds_alerte_match(etat: dict, numero: int, match: dict, probleme: str,
 STATUTS_TOURNOI = {L.EN_COURS: "🟢 En cours", L.TERMINE: "🏁 Terminé", L.ARRETE: "🛑 Arrêté"}
 
 
-def _ligne_match_status(etat: dict, match: dict) -> str:
+def _ligne_match_status(etat: dict, match: dict, mention_declarations: bool = True) -> str:
     duel = f"**{_nom(etat, match['equipe_a'])}** vs **{_nom(etat, match['equipe_b'])}**"
     statut = match["statut"]
     if statut == L.MATCH_TERMINE:
         etat_match = f"✅ {_score(etat, match)}"
         if _source(match) == L.SOURCE_ADMIN:
             etat_match += " *(validé par un admin)*"
-        elif _source(match) == L.SOURCE_DECLARATIONS:
+        elif _source(match) == L.SOURCE_DECLARATIONS and mention_declarations:
             etat_match += " *(déclaré par les équipes)*"
     elif statut == L.MATCH_EN_COURS:
         etat_match = f"{duel} — " + ("🎮 partie créée, en cours" if match.get("pp_creee_le")
@@ -661,7 +661,8 @@ def texte_lancement_tournoi(etat: dict) -> str:
 def embeds_resultats_ronde(etat: dict, ronde: dict) -> list[discord.Embed]:
     """Récap d'un round terminé (salon des résultats) : score de chaque zone, puis classement."""
     lignes = [f"**🎯 Round {ronde['numero']}**"]
-    lignes += [_ligne_match_status(etat, m) for m in sorted(ronde["matchs"], key=lambda m: m["zone"], reverse=True)]
+    lignes += [_ligne_match_status(etat, m, mention_declarations=False)
+               for m in sorted(ronde["matchs"], key=lambda m: m["zone"], reverse=True)]
     lignes += ["", "**📊 Classement**", *lignes_classement(etat)]
     return _embeds(f"🏆 {etat['titre']} — Round {ronde['numero']}/{etat['nombre_de_rondes']}", lignes,
                    f"ID tournoi : {etat['tournoi_id']}")

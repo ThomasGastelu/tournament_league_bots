@@ -115,7 +115,7 @@ Le fichier d'inscription (`../rl_bot_ppname_creator/data/tournois/<id>.json`) n'
 🚀 Lancement du tournoi test
 
 🎯 Round 3
-Zone 1 ⭐ : ✅ caca 1 - 2 tomatoTown (déclaré par les équipes)
+Zone 1 ⭐ : ✅ caca 1 - 2 tomatoTown
 
 📊 Classement
 🥇 tomatoTown — 6 points (2V-1D, diff +2)

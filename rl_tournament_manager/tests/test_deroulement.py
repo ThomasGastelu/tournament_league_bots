@@ -89,7 +89,8 @@ def test_tournoi_complet_8_equipes(tmp_path):
     for numero, embeds in enumerate(messagerie.resultats_rondes, start=1):
         texte = " ".join((e.title or "") + " " + (e.description or "") for e in embeds)
         assert f"🎯 Round {numero}**" in texte and "📊 Classement" in texte
-        assert texte.count("*(déclaré par les équipes)*") == 4 and "Zone 4 ⭐" in texte
+        assert texte.count("✅") == 4 and "Zone 4 ⭐" in texte
+        assert "déclaré par les équipes" not in texte
 
     # Salon : une annonce par ronde + le classement final. Aucune alerte.
     assert len(messagerie.annonces) == 4
