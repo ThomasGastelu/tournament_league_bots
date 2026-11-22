@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import discord
 
-from .logique import DELAI_SUPPRESSION, Categorie
+from .logique import DELAI_SUPPRESSION, Categorie, texte_heures
 
 # Bleu Discord, comme sur le modèle du panneau Support (les autres bots sont en orange 0xE67E22).
 COULEUR = discord.Colour(0x5865F2)
@@ -12,6 +12,8 @@ COULEUR = discord.Colour(0x5865F2)
 TEXTE_CHOIX = "📩 Choisis la catégorie de ta demande :"
 TEXTE_CHOIX_EXPIRE = "⌛ Choix expiré : clique à nouveau sur **Créer un ticket**."
 TEXTE_PAS_LE_DROIT = "❌ Seuls l'auteur du ticket et le staff peuvent le fermer."
+TEXTE_RESOLU_RESERVE = ("❌ Seul l'auteur du ticket peut confirmer que son problème est résolu. "
+                        "Le staff peut utiliser **Fermer le ticket**.")
 TEXTE_PAS_UN_TICKET = "❌ Ce salon n'est pas un ticket (son sujet a peut-être été modifié)."
 TEXTE_FERMETURE_ANNULEE = "👍 Le ticket reste ouvert."
 TEXTE_PERMISSION = (
@@ -33,18 +35,18 @@ def embed_panneau() -> discord.Embed:
     )
 
 
-def embed_ticket(categorie: Categorie, auteur_mention: str) -> discord.Embed:
+def embed_ticket(categorie: Categorie, auteur_mention: str, fermeture_auto_heures: float = 0) -> discord.Embed:
     """Premier message du salon du ticket."""
-    embed = discord.Embed(
-        title=f"{categorie.emoji} {categorie.nom}",
-        description=(
-            f"Bienvenue {auteur_mention} !\n\n"
-            f"{categorie.consigne}\n\n"
-            "Un membre du staff te répondra dès que possible. "
-            "Clique sur **Fermer le ticket** quand ta demande est réglée."
-        ),
-        colour=COULEUR,
+    description = (
+        f"Bienvenue {auteur_mention} !\n\n"
+        f"{categorie.consigne}\n\n"
+        "Un membre du staff te répondra dès que possible. "
+        "Quand ta demande est réglée, clique sur **✅ Problème résolu**."
     )
+    if fermeture_auto_heures > 0:
+        description += (f"\n\n⌛ Si tu ne réponds plus pendant {texte_heures(fermeture_auto_heures)} "
+                        "après une réponse du staff, le ticket se ferme tout seul.")
+    embed = discord.Embed(title=f"{categorie.emoji} {categorie.nom}", description=description, colour=COULEUR)
     embed.set_footer(text=categorie.description)
     return embed
 
@@ -69,6 +71,17 @@ def texte_log_ouverture(categorie: Categorie, auteur_mention: str, salon_mention
     return f"📩 {auteur_mention} a ouvert un ticket **{categorie.nom}** : {salon_mention}"
 
 
-def texte_log_fermeture(categorie_nom: str, salon_nom: str, auteur_mention: str, fermeur_mention: str) -> str:
-    return (f"🔒 Ticket **{categorie_nom}** `#{salon_nom}` de {auteur_mention} fermé par {fermeur_mention}. "
+def texte_resolu_par(nom: str) -> str:
+    return (f"✅ **{discord.utils.escape_markdown(nom)}** a confirmé que le problème est résolu. "
+            f"Suppression du salon dans {DELAI_SUPPRESSION} secondes.")
+
+
+def texte_ferme_auto(heures: float) -> str:
+    return (f"⌛ Pas de réponse depuis {texte_heures(heures)} après la réponse du staff : ticket fermé "
+            f"automatiquement. Suppression du salon dans {DELAI_SUPPRESSION} secondes.")
+
+
+def texte_log_fermeture(categorie_nom: str, salon_nom: str, auteur_mention: str, comment: str) -> str:
+    """`comment` : « fermé par @Modo », « résolu (confirmé par l'auteur) », « fermé automatiquement… »."""
+    return (f"🔒 Ticket **{categorie_nom}** `#{salon_nom}` de {auteur_mention} {comment}. "
             "Copie de la conversation ci-jointe.")

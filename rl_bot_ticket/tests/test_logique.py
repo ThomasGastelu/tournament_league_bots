@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from bot_ticket import logique as L
@@ -77,3 +79,33 @@ def test_probleme_token():
     assert "Public Key" in L.probleme_token("a" * 64)
     assert "Client Secret" in L.probleme_token("abcdef")
     assert L.probleme_token("MTIz.Gh1jK2.xyz") is None
+
+
+def test_fermeture_auto_seulement_si_le_staff_a_parle_en_dernier_depuis_assez_longtemps():
+    maintenant = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
+
+    def vu(auteur, heures, bot=False):
+        return L.MessageVu(auteur, bot, maintenant - timedelta(hours=heures))
+
+    auteur, staff, robot = 1, 2, 99
+    assert L.doit_fermer_auto([vu(auteur, 30), vu(staff, 24)], auteur, maintenant, 24)
+    assert not L.doit_fermer_auto([vu(auteur, 30), vu(staff, 23)], auteur, maintenant, 24)    # trop tôt
+    assert not L.doit_fermer_auto([vu(staff, 30), vu(auteur, 25)], auteur, maintenant, 24)    # l'auteur a répondu
+    assert not L.doit_fermer_auto([vu(robot, 50, bot=True)], auteur, maintenant, 24)          # personne n'a répondu
+    assert L.doit_fermer_auto([vu(staff, 30), vu(robot, 1, bot=True)], auteur, maintenant, 24)  # le bot ne compte pas
+    assert not L.doit_fermer_auto([vu(staff, 100)], auteur, maintenant, 0)                    # désactivé
+
+
+def test_reglage_fermeture_auto():
+    assert L.lire_reglages({}).fermeture_auto_heures == 72
+    assert L.lire_reglages({"FERMETURE_AUTO_HEURES": "0"}).fermeture_auto_heures == 0
+    assert L.lire_reglages({"FERMETURE_AUTO_HEURES": "1,5"}).fermeture_auto_heures == 1.5
+    for faux in ("abc", "-3", "nan"):
+        with pytest.raises(L.ErreurReglage, match="FERMETURE_AUTO_HEURES"):
+            L.lire_reglages({"FERMETURE_AUTO_HEURES": faux})
+
+
+def test_texte_heures():
+    assert L.texte_heures(24) == "24 h"
+    assert L.texte_heures(1.5) == "1 h 30"
+    assert L.texte_heures(0.5) == "30 min"

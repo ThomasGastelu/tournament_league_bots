@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
@@ -13,7 +14,7 @@ from dotenv import load_dotenv
 
 from . import logique as L
 from .commandes import gerer_erreur, ticket_panel
-from .tickets import BoutonCreerTicket, BoutonFermerTicket
+from .tickets import BoutonCreerTicket, BoutonFermerTicket, BoutonProblemeResolu, boucle_fermeture_auto
 
 RACINE = Path(__file__).resolve().parent.parent
 log = logging.getLogger("bot_ticket")
@@ -52,10 +53,11 @@ class BotTicket(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self.tree.error(gerer_erreur)
         self.tree.add_command(ticket_panel)
+        self.tache_fermeture_auto: asyncio.Task | None = None
 
     async def setup_hook(self) -> None:
         # Boutons persistants : ils marchent sur les anciens messages, même après un redémarrage.
-        self.add_dynamic_items(BoutonCreerTicket, BoutonFermerTicket)
+        self.add_dynamic_items(BoutonCreerTicket, BoutonProblemeResolu, BoutonFermerTicket)
         if self.serveur_id:
             # Sur un seul serveur : la commande apparaît tout de suite.
             serveur = discord.Object(id=self.serveur_id)
@@ -72,6 +74,9 @@ class BotTicket(discord.Client):
         log.info("Connecté en tant que %s", self.user)
         if not self.reglages.roles_staff:
             log.warning("ROLES_STAFF est vide : seuls les membres qui peuvent gérer les salons verront les tickets.")
+        if self.reglages.fermeture_auto_heures > 0 and self.tache_fermeture_auto is None:
+            # on_ready peut revenir après une reconnexion : une seule boucle.
+            self.tache_fermeture_auto = asyncio.create_task(boucle_fermeture_auto(self))
 
 
 def main() -> None:

@@ -2,10 +2,13 @@
 
 - « 🎫 Créer un ticket » (panneau Support) → liste des catégories (visible par le membre seul)
   → salon privé dans la catégorie des tickets, visible par l'auteur et le staff.
-- « 🔒 Fermer le ticket » (dans le salon) → confirmation → copie de la conversation dans
-  LOG_CHANNEL → suppression du salon.
+- « ✅ Problème résolu » (dans le salon, pour l'auteur) → fermeture directe.
+- « 🔒 Fermer le ticket » (dans le salon, auteur ou staff) → confirmation → fermeture.
+- Fermeture automatique : toutes les 10 minutes, les tickets où le staff a parlé en dernier
+  depuis FERMETURE_AUTO_HEURES sont fermés (rien à retenir : tout est relu dans le salon).
+Fermer = copie de la conversation dans LOG_CHANNEL puis suppression du salon.
 
-Les deux boutons sont des « DynamicItem » : ils marchent encore après un redémarrage du bot.
+Les boutons sont des « DynamicItem » : ils marchent encore après un redémarrage du bot.
 L'auteur et la catégorie d'un ticket sont lus dans le sujet du salon (voir logique.lire_sujet).
 """
 
@@ -15,6 +18,7 @@ import asyncio
 import io
 import logging
 import re
+from datetime import datetime, timezone
 
 import discord
 from discord import ui
@@ -26,6 +30,7 @@ log = logging.getLogger(__name__)
 
 DUREE_CHOIX_SECONDES = 300
 _verrous: dict[int, asyncio.Lock] = {}  # un par membre : deux clics rapides n'ouvrent pas deux tickets
+_en_fermeture: set[int] = set()         # salons en cours de fermeture : jamais fermés deux fois
 
 
 def verrou(membre_id: int) -> asyncio.Lock:
@@ -111,14 +116,22 @@ class ChoixCategorie(ui.View):
 # Création
 # --------------------------------------------------------------------------- #
 
-async def categorie_des_tickets(serveur: discord.Guild, regl: L.Reglages):
-    """La catégorie Discord des tickets : CATEGORIE_TICKETS, sinon « Support » (créée au besoin)."""
+def trouver_categorie(serveur: discord.Guild, regl: L.Reglages):
+    """La catégorie Discord des tickets si elle existe : CATEGORIE_TICKETS, sinon « Support »."""
     if regl.categorie_id:
         salon = serveur.get_channel(regl.categorie_id)
         return salon if isinstance(salon, discord.CategoryChannel) else None
     for categorie in serveur.categories:
         if categorie.name.lower() == L.NOM_CATEGORIE_PAR_DEFAUT.lower():
             return categorie
+    return None
+
+
+async def categorie_des_tickets(serveur: discord.Guild, regl: L.Reglages):
+    """La catégorie Discord des tickets : CATEGORIE_TICKETS, sinon « Support » (créée au besoin)."""
+    trouvee = trouver_categorie(serveur, regl)
+    if trouvee is not None or regl.categorie_id:
+        return trouvee
     droits = {
         serveur.default_role: discord.PermissionOverwrite(view_channel=False),
         serveur.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
@@ -181,7 +194,7 @@ async def creer_ticket(interaction: discord.Interaction, categorie: L.Categorie)
     log.info("Ticket %s ouvert par %s : #%s", categorie.cle, membre, salon.name)
     mentions = " ".join([membre.mention, *(role.mention for role in staff)])
     try:
-        await salon.send(mentions, embed=E.embed_ticket(categorie, membre.mention), view=vue_ticket(),
+        await salon.send(mentions, embed=E.embed_ticket(categorie, membre.mention, regl.fermeture_auto_heures), view=vue_ticket(),
                          allowed_mentions=discord.AllowedMentions(users=True, roles=True))
     except discord.HTTPException as erreur:
         log.warning("Message d'accueil impossible dans #%s : %s", salon.name, erreur)
@@ -192,6 +205,28 @@ async def creer_ticket(interaction: discord.Interaction, categorie: L.Categorie)
 # --------------------------------------------------------------------------- #
 # Fermeture
 # --------------------------------------------------------------------------- #
+
+class BoutonProblemeResolu(ui.DynamicItem[ui.Button], template=r"tk:resolu"):
+    def __init__(self) -> None:
+        super().__init__(ui.Button(
+            label="Problème résolu", emoji="✅", style=discord.ButtonStyle.success, custom_id="tk:resolu",
+        ))
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match: re.Match[str]):
+        return cls()
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        infos = L.lire_sujet(getattr(interaction.channel, "topic", None))
+        if infos is None:
+            return await repondre(interaction, E.TEXTE_PAS_UN_TICKET)
+        if not L.est_auteur(interaction.user.id, infos[0]):
+            return await repondre(interaction, E.TEXTE_RESOLU_RESERVE)
+        await interaction.response.defer()  # le clic vaut confirmation : pas de deuxième question
+        await fermer_salon(interaction.client, interaction.channel,
+                           E.texte_resolu_par(interaction.user.display_name),
+                           "résolu, confirmé par son auteur", par=interaction.user)
+
 
 class BoutonFermerTicket(ui.DynamicItem[ui.Button], template=r"tk:fermer"):
     def __init__(self) -> None:
@@ -214,6 +249,7 @@ class BoutonFermerTicket(ui.DynamicItem[ui.Button], template=r"tk:fermer"):
 
 def vue_ticket() -> ui.View:
     vue = ui.View(timeout=None)
+    vue.add_item(BoutonProblemeResolu())
     vue.add_item(BoutonFermerTicket())
     return vue
 
@@ -234,7 +270,9 @@ class ConfirmationFermeture(ui.View):
     async def oui(self, interaction: discord.Interaction, _bouton: ui.Button) -> None:
         self.stop()
         await interaction.response.edit_message(content="⏳ Fermeture du ticket…", view=None)
-        await fermer_ticket(interaction)
+        await fermer_salon(interaction.client, interaction.channel,
+                           E.texte_ferme_par(interaction.user.display_name),
+                           f"fermé par {interaction.user.mention}", par=interaction.user)
 
     @ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
     async def non(self, interaction: discord.Interaction, _bouton: ui.Button) -> None:
@@ -256,34 +294,96 @@ async def copie_conversation(salon) -> str:
     return L.texte_transcription(f"Ticket #{salon.name} — {salon.topic or ''}", messages)
 
 
-async def fermer_ticket(interaction: discord.Interaction) -> None:
-    salon, fermeur = interaction.channel, interaction.user
+async def fermer_salon(client: discord.Client, salon, annonce: str, comment: str, par=None) -> bool:
+    """Annonce la fermeture dans le salon, copie la conversation dans LOG_CHANNEL, puis supprime le salon.
+    `comment` complète la ligne de LOG_CHANNEL. False si le salon n'est pas un ticket ou déjà en fermeture."""
     infos = L.lire_sujet(getattr(salon, "topic", None))
-    if infos is None:
-        return await repondre(interaction, E.TEXTE_PAS_UN_TICKET)
-    auteur_id, categorie = infos
-
+    if infos is None or salon.id in _en_fermeture:
+        return False
+    _en_fermeture.add(salon.id)
     try:
-        await salon.send(E.texte_ferme_par(fermeur.display_name))
-    except discord.HTTPException:
-        pass
-
-    if reglages(interaction).log_channel:
+        auteur_id, categorie = infos
         try:
-            texte = await copie_conversation(salon)
-            fichier = discord.File(io.BytesIO(texte.encode("utf-8")), filename=f"{salon.name}.txt")
-            await noter(interaction.client,
-                        E.texte_log_fermeture(categorie.nom, salon.name, f"<@{auteur_id}>", fermeur.mention),
-                        file=fichier)
-        except discord.HTTPException as erreur:  # la copie est un bonus : le ticket se ferme quand même
-            log.warning("Copie du ticket #%s impossible : %s", salon.name, erreur)
+            await salon.send(annonce)
+        except discord.HTTPException:
+            pass
 
-    await asyncio.sleep(L.DELAI_SUPPRESSION)
-    try:
-        await salon.delete(reason=f"Ticket fermé par {fermeur}")
-        log.info("Ticket #%s fermé par %s", salon.name, fermeur)
-    except discord.Forbidden:
-        await repondre(interaction, "❌ Le bot n'a pas le droit de supprimer ce salon : "
-                                    "coche **Gérer les salons** pour son rôle (Paramètres du serveur > Rôles).")
-    except discord.NotFound:
-        pass  # déjà supprimé à la main
+        if client.reglages.log_channel:  # type: ignore[attr-defined]
+            try:
+                texte = await copie_conversation(salon)
+                fichier = discord.File(io.BytesIO(texte.encode("utf-8")), filename=f"{salon.name}.txt")
+                await noter(client, E.texte_log_fermeture(categorie.nom, salon.name, f"<@{auteur_id}>", comment),
+                            file=fichier)
+            except discord.HTTPException as erreur:  # la copie est un bonus : le ticket se ferme quand même
+                log.warning("Copie du ticket #%s impossible : %s", salon.name, erreur)
+
+        await asyncio.sleep(L.DELAI_SUPPRESSION)
+        try:
+            await salon.delete(reason=f"Ticket {comment}"[:500])
+            log.info("Ticket #%s %s", salon.name, comment if par is None else f"fermé par {par}")
+        except discord.Forbidden:
+            log.error("Le bot n'a pas le droit de supprimer #%s : coche « Gérer les salons » pour son rôle",
+                      salon.name)
+            try:
+                await salon.send("❌ Le bot n'a pas le droit de supprimer ce salon : coche **Gérer les salons** "
+                                 "pour son rôle (Paramètres du serveur > Rôles).")
+            except discord.HTTPException:
+                pass
+            return False
+        except discord.NotFound:
+            pass  # déjà supprimé à la main
+        return True
+    finally:
+        _en_fermeture.discard(salon.id)
+
+
+# --------------------------------------------------------------------------- #
+# Fermeture automatique
+# --------------------------------------------------------------------------- #
+
+async def ticket_inactif(salon, auteur_id: int, heures: float, maintenant: datetime) -> bool:
+    messages = [
+        L.MessageVu(message.author.id, message.author.bot, message.created_at)
+        async for message in salon.history(limit=L.MESSAGES_LUS_VERIFICATION)
+    ]
+    return L.doit_fermer_auto(messages, auteur_id, maintenant, heures)
+
+
+async def fermer_tickets_inactifs(client: discord.Client, maintenant: datetime | None = None) -> int:
+    """Ferme les tickets où le staff a répondu et où l'auteur n'a plus rien écrit depuis
+    FERMETURE_AUTO_HEURES. Retourne le nombre de tickets fermés. Un ticket en erreur n'arrête pas les autres."""
+    regl: L.Reglages = client.reglages  # type: ignore[attr-defined]
+    if regl.fermeture_auto_heures <= 0:
+        return 0
+    maintenant = maintenant or datetime.now(timezone.utc)
+    fermes = 0
+    for serveur in client.guilds:
+        dossier = trouver_categorie(serveur, regl)
+        if dossier is None:
+            continue
+        for salon in list(dossier.text_channels):
+            infos = L.lire_sujet(getattr(salon, "topic", None))
+            if infos is None:
+                continue
+            try:
+                if await ticket_inactif(salon, infos[0], regl.fermeture_auto_heures, maintenant):
+                    if await fermer_salon(client, salon, E.texte_ferme_auto(regl.fermeture_auto_heures),
+                                          f"fermé automatiquement (pas de réponse depuis "
+                                          f"{L.texte_heures(regl.fermeture_auto_heures)})"):
+                        fermes += 1
+            except discord.HTTPException as erreur:
+                log.warning("Vérification du ticket #%s impossible : %s", salon.name, erreur)
+    return fermes
+
+
+async def boucle_fermeture_auto(client: discord.Client) -> None:
+    """Tourne tant que le bot est lancé : vérifie les tickets toutes les VERIFICATION_AUTO_MINUTES."""
+    await client.wait_until_ready()
+    while not client.is_closed():
+        try:
+            fermes = await fermer_tickets_inactifs(client)
+            if fermes:
+                log.info("%d ticket%s fermé%s automatiquement", fermes, "s" * (fermes > 1), "s" * (fermes > 1))
+        except Exception:  # la boucle ne doit jamais s'arrêter sur une erreur
+            log.exception("Erreur pendant la fermeture automatique des tickets")
+        await asyncio.sleep(L.VERIFICATION_AUTO_MINUTES * 60)

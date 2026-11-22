@@ -2,7 +2,7 @@
 (sans token ni serveur)."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import discord
@@ -25,7 +25,7 @@ class FauxRole:
 
 class FauxMembre:
     def __init__(self, uid, nom, roles=(), gere_salons=False):
-        self.id, self.display_name, self.roles = uid, nom, list(roles)
+        self.id, self.display_name, self.roles, self.bot = uid, nom, list(roles), False
         self.mention = f"<@{uid}>"
         self.guild_permissions = SimpleNamespace(manage_channels=gere_salons)
 
@@ -38,21 +38,29 @@ class FauxSalon:
         self.name, self.topic, self.category, self.overwrites = nom, topic, category, overwrites or {}
         self.id = id(self)
         self.mention = f"<#{nom}>"
-        self.envois, self.supprime = [], False
+        self.envois, self.supprime, self.historique = [], False, []
 
     async def send(self, texte=None, **kwargs):
         self.envois.append((texte, kwargs))
+        self.ecrit(BOT, texte or "", embeds=[kwargs["embed"]] if kwargs.get("embed") else [])
         return SimpleNamespace()
+
+    def ecrit(self, auteur, texte, date=None, embeds=()):
+        """Ajoute un message à l'historique du salon (lu par la copie et la fermeture automatique)."""
+        self.historique.append(SimpleNamespace(
+            content=texte, embeds=list(embeds), attachments=[], author=auteur,
+            created_at=date or datetime.now(timezone.utc)))
 
     async def delete(self, **kwargs):
         self.supprime = True
 
-    async def history(self, **kwargs):
-        for texte, options in self.envois:
-            yield SimpleNamespace(
-                content=texte or "", embeds=[options["embed"]] if options.get("embed") else [],
-                attachments=[], created_at=datetime(2026, 1, 1, 10, 0),
-                author=SimpleNamespace(display_name="Bot ticket"))
+    async def history(self, limit=100, oldest_first=False):
+        messages = sorted(self.historique, key=lambda m: m.created_at, reverse=not oldest_first)
+        for message in messages[:limit]:
+            yield message
+
+
+BOT = SimpleNamespace(id=99, display_name="Bot ticket", bot=True)
 
 
 class FausseCategorie:
@@ -99,6 +107,9 @@ class FausseReponse:
     def is_done(self):
         return self.fait
 
+    async def defer(self, **kwargs):
+        self.fait = True
+
     async def send_message(self, texte=None, **kwargs):
         self.fait = True
         self.inter.reponses.append((texte, kwargs))
@@ -130,11 +141,12 @@ class FausseInteraction:
 def monde(monkeypatch):
     monkeypatch.setattr(L, "DELAI_SUPPRESSION", 0)
     T._verrous.clear()
+    T._en_fermeture.clear()
     staff = FauxRole(500, "Staff")
     serveur = FauxServeur([staff])
     logs = FauxSalon("logs")
     client = SimpleNamespace(reglages=L.Reglages(roles_staff=(500,), log_channel=777),
-                             get_channel=lambda uid: logs if uid == 777 else None)
+                             get_channel=lambda uid: logs if uid == 777 else None, guilds=[serveur])
     return SimpleNamespace(
         client=client, serveur=serveur, staff=staff, logs=logs, salon_general=FauxSalon("général"),
         thomas=FauxMembre(1, "Thomas"), lucas=FauxMembre(2, "Lucas"),
@@ -203,7 +215,8 @@ def test_choisir_une_categorie_ouvre_un_salon_prive(monde):
     texte, options = salon.envois[0]
     assert texte == "<@1> <@&500>"
     assert options["embed"].title == "⚙️ Problème technique"
-    assert options["view"].children[0].item.custom_id == "tk:fermer"
+    assert [b.item.custom_id for b in options["view"].children] == ["tk:resolu", "tk:fermer"]
+    assert "ne réponds plus pendant 72 h" in options["embed"].description
     assert choix.dernier_texte() == "✅ Ton ticket est ouvert : <#technique-thomas>"
     assert "a ouvert un ticket **Problème technique**" in monde.logs.envois[-1][0]
 
@@ -285,3 +298,59 @@ def test_fermer_hors_d_un_ticket(monde):
         return clic
 
     assert lancer(scenario()).reponses[-1][0] == E.TEXTE_PAS_UN_TICKET
+
+
+def test_probleme_resolu_par_l_auteur_ferme_le_ticket(monde):
+    async def scenario():
+        await ouvrir(monde, monde.thomas)
+        salon = monde.serveur.categories[0].text_channels[0]
+        await T.BoutonProblemeResolu().callback(FausseInteraction(monde, monde.thomas, salon))
+        return salon
+
+    salon = lancer(scenario())
+    assert salon.supprime
+    assert "**Thomas** a confirmé que le problème est résolu" in salon.envois[-1][0]
+    assert "résolu, confirmé par son auteur" in monde.logs.envois[-1][0]
+
+
+def test_seul_l_auteur_peut_dire_resolu(monde):
+    async def scenario():
+        await ouvrir(monde, monde.thomas)
+        salon = monde.serveur.categories[0].text_channels[0]
+        clic = FausseInteraction(monde, monde.modo, salon)
+        await T.BoutonProblemeResolu().callback(clic)
+        return clic, salon
+
+    clic, salon = lancer(scenario())
+    assert clic.reponses[-1][0] == E.TEXTE_RESOLU_RESERVE and not salon.supprime
+
+
+def ticket_avec_reponses(monde, *messages):
+    """Ouvre un ticket de Thomas puis ajoute (membre, il y a X heures, texte) à son historique."""
+    lancer(ouvrir(monde, monde.thomas))
+    salon = monde.serveur.categories[0].text_channels[0]
+    maintenant = datetime.now(timezone.utc)
+    for membre, heures, texte in messages:
+        salon.ecrit(membre, texte, maintenant - timedelta(hours=heures))
+    return salon
+
+
+def test_fermeture_auto_apres_72h_sans_reponse_du_membre(monde):
+    salon = ticket_avec_reponses(monde, (monde.thomas, 80, "J'ai un bug"), (monde.modo, 73, "C'est réglé ?"))
+    assert lancer(T.fermer_tickets_inactifs(monde.client)) == 1
+    assert salon.supprime and "fermé automatiquement" in salon.envois[-1][0]
+    assert "fermé automatiquement (pas de réponse depuis 72 h)" in monde.logs.envois[-1][0]
+
+
+def test_pas_de_fermeture_auto_si_le_membre_a_parle_en_dernier_ou_trop_tot(monde):
+    salon = ticket_avec_reponses(monde, (monde.modo, 80, "Des nouvelles ?"), (monde.thomas, 75, "Pas encore"))
+    assert lancer(T.fermer_tickets_inactifs(monde.client)) == 0
+    salon.ecrit(monde.modo, "Ok, on attend", datetime.now(timezone.utc) - timedelta(hours=2))
+    assert lancer(T.fermer_tickets_inactifs(monde.client)) == 0
+    assert not salon.supprime
+
+
+def test_fermeture_auto_desactivee_avec_zero(monde):
+    monde.client.reglages = L.Reglages(roles_staff=(500,), fermeture_auto_heures=0)
+    salon = ticket_avec_reponses(monde, (monde.modo, 100, "Réglé ?"))
+    assert lancer(T.fermer_tickets_inactifs(monde.client)) == 0 and not salon.supprime

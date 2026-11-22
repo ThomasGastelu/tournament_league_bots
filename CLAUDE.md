@@ -84,7 +84,7 @@ Les trois bots suivent le même découpage. Respecter cette séparation :
 - `stockage.py` : lecture / écriture JSON, un fichier par tournoi, écriture atomique (`.json.tmp` puis `os.replace`), un `asyncio.Lock` par tournoi (`verrou(tournoi_id)`).
 - Textes et embeds séparés de la logique (`embeds.py`, `messages.py`).
 
-Spécifique à `bot_ticket` : `tickets.py` (boutons « Créer un ticket » et « Fermer le ticket » en `DynamicItem`, liste des catégories, création / fermeture des salons). Pas de `stockage.py` : l'auteur et la catégorie d'un ticket sont dans le sujet du salon (`ticket:<id>:<catégorie>`). Embeds en bleu `0x5865F2` pour ressembler au modèle du panneau Support.
+Spécifique à `bot_ticket` : `tickets.py` (boutons « Créer un ticket », « Problème résolu » (auteur seul) et « Fermer le ticket » en `DynamicItem`, liste des catégories, création / fermeture des salons, `boucle_fermeture_auto` : toutes les 10 min, ferme les tickets où le staff a parlé en dernier depuis `FERMETURE_AUTO_HEURES`, 72 par défaut, relu dans l'historique du salon). Pas de `stockage.py` : l'auteur et la catégorie d'un ticket sont dans le sujet du salon (`ticket:<id>:<catégorie>`). Embeds en bleu `0x5865F2` pour ressembler au modèle du panneau Support.
 
 Spécifique à `bot_inscription_manager` : `inscription.py` (bouton S'inscrire, fiches, boutons Valider / Refuser / Annuler en `DynamicItem`, expiration des inscriptions vérifiée chaque minute).
 
