@@ -171,7 +171,9 @@ def test_remplacant_pendant_un_match(tmp_path):
         assert messagerie.acces_salon == [(REMPLACANT, remplace)]
         textes = messagerie.mps_de(REMPLACANT)
         assert any("tu remplaces" in t for t in textes)
-        assert any(match["pp"]["nom"] in t and "Rejoins-la" in t for t in textes)  # infos du match en cours
+        # Infos du match en cours, sans le nom ni le mot de passe tant que la partie n'est pas créée.
+        assert any("tu recevras son nom et son mot de passe" in t for t in textes)
+        assert not any(match["pp"]["mot_de_passe"] in t for t in textes)
         assert any("Un admin t'a remplacé" in t for t in messagerie.mps_de(remplace))
         reponse = M.reponse_modification(etat, modif, notes)
         assert f"<@{REMPLACANT}>" in reponse and "accès au salon" in reponse
@@ -184,7 +186,7 @@ def test_remplacant_pendant_un_match(tmp_path):
     etat, messagerie, remplace, nb_mp_ancien = asyncio.run(scenario())
     assert etat["statut"] == L.TERMINE
     textes = messagerie.mps_de(REMPLACANT)
-    assert any("a créé la partie privée" in t for t in textes)
+    assert any("a créé la partie privée" in t and "Mot de passe" in t for t in textes)
     assert any("Match terminé" in t for t in textes) and any("est terminé" in t for t in textes)
     assert len(messagerie.mps_de(remplace)) == nb_mp_ancien  # l'ancien joueur ne reçoit plus rien
     assert L.trouver_joueur(etat, REMPLACANT)[1]["pseudo_jeu"] == "RemplaRL"

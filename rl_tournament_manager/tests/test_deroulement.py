@@ -68,8 +68,12 @@ def test_tournoi_complet_8_equipes(tmp_path):
                        for t in messagerie.mps_de(capitaine))
     joueur = etat["equipes"]["1"]["joueurs"][1]["id"]
     textes = messagerie.mps_de(joueur)
-    assert sum("Rejoins-la" in t for t in textes) == 3
-    assert all("le bot vous envoie un MP pour déclarer le score" in t for t in textes if "Rejoins-la" in t)
+    # Premier MP : ni nom ni mot de passe, ils n'arrivent qu'une fois la partie créée.
+    infos = [t for t in textes if "tu recevras son nom et son mot de passe" in t]
+    assert len(infos) == 3
+    assert all("le bot vous envoie un MP pour déclarer le score" in t for t in infos)
+    assert not any("tomato_test" in t or "Mot de passe" in t for t in infos)
+    assert all("Mot de passe" in t and "tomato_test" in t for t in textes if "a créé la partie privée" in t)
     assert sum("Déclare le score de ton match" in t for t in textes) == 3
     fins = [t for t in textes if "Match terminé" in t]
     assert len(fins) == 3 and all("déclaré par les deux équipes" in t for t in fins)
@@ -384,6 +388,10 @@ def test_redemarrage_apres_le_clic(tmp_path):
     assert etat["statut"] == L.TERMINE
     assert messagerie.boutons_pp == []
     assert any("Tu as indiqué que la partie est créée" in t for _, t in messagerie.mps)
+    # Partie déjà créée : le rappel aux autres joueurs redonne le nom et le mot de passe.
+    match = etat["rondes"][0]["matchs"][0]
+    rappels = [t for _, t in messagerie.mps if "a créé la partie privée. Rejoins-la avec" in t]
+    assert len(rappels) == 3 and all(match["pp"]["mot_de_passe"] in t for t in rappels)
 
 
 # --------------------------------------------------------------------------- #

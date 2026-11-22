@@ -179,16 +179,22 @@ def mp_rejoindre(etat: dict, numero: int, match: dict, equipe_id: int, reprise: 
         f"Ton équipe **{_nom(etat, equipe_id)}** affronte **{_nom(etat, L.adversaire(match, equipe_id))}** "
         f"({_format(etat)}).",
         "",
-        f"**{nom_capitaine}** (capitaine de **{_nom(etat, match['equipe_a'])}**) "
-        + ("a créé la partie privée. Rejoins-la avec :" if match.get("pp_creee_le")
-           else "crée la partie privée (tu recevras un MP quand elle sera prête). Rejoins-la avec :"),
-        *_bloc_partie(match),
+        *_ligne_partie(match, f"**{nom_capitaine}** (capitaine de **{_nom(etat, match['equipe_a'])}**)"),
         "",
         _consigne_couleurs(etat, match),
         "",
         CONSIGNE_SCORE,
     ]
     return "\n".join(lignes)
+
+
+def _ligne_partie(match: dict, capitaine: str) -> list[str]:
+    """Pour les joueurs qui rejoignent : le nom et le mot de passe seulement une fois la partie créée.
+    Avant le clic du capitaine, ils les reçoivent dans le MP « ✅ … a créé la partie privée »."""
+    if match.get("pp_creee_le"):
+        return [f"{capitaine} a créé la partie privée. Rejoins-la avec :", *_bloc_partie(match)]
+    return [f"{capitaine} crée la partie privée : tu recevras son nom et son mot de passe en MP dès qu'elle "
+            "sera prête."]
 
 
 def secours_infos_match(etat: dict, numero: int, match: dict) -> str:
@@ -336,18 +342,12 @@ def mp_plus_capitaine(etat: dict, equipe_id: int, nouveau_pseudo: str, partie_a_
 
 def mp_infos_remplacant(etat: dict, numero: int, match: dict, equipe_id: int) -> str:
     """Au remplaçant dont l'équipe a un match en cours (et qui n'a pas à créer la partie)."""
-    if match.get("pp_creee_le"):
-        qui = "La partie privée est déjà créée. Rejoins-la avec :"
-    else:
-        qui = (f"**{_pseudo_capitaine(etat, match)}** (capitaine de **{_nom(etat, match['equipe_a'])}**) crée la "
-               "partie privée (tu recevras un MP quand elle sera prête). Rejoins-la avec :")
     return "\n".join([
         _entete_match(etat, numero, match),
         f"Ton équipe **{_nom(etat, equipe_id)}** affronte **{_nom(etat, L.adversaire(match, equipe_id))}** "
         f"({_format(etat)}).",
         "",
-        qui,
-        *_bloc_partie(match),
+        *_ligne_partie(match, f"**{_pseudo_capitaine(etat, match)}** (capitaine de **{_nom(etat, match['equipe_a'])}**)"),
         "",
         _consigne_couleurs(etat, match),
         "",

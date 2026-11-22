@@ -28,7 +28,7 @@ Les joueurs n'ont pas de commande à taper, ils ont des boutons dans leurs MP :
 2. Le bot génère une partie privée par zone avec `generer_pp_names.py -n <nombre de zones>` (le match 1 va en zone 1, etc.).
 3. **Tous les matchs se jouent en même temps.** Dès le début du round, pour chaque zone :
    - le capitaine de l'équipe A reçoit : « Vous devez créer la partie privée avec le nom = … et le mot de passe = … », avec le bouton **✅ Partie privée créée** ;
-   - les autres joueurs des deux équipes reçoivent le nom et le mot de passe pour la rejoindre ;
+   - les autres joueurs des deux équipes reçoivent leur match, **sans le nom ni le mot de passe** : ils les reçoivent seulement quand le capitaine a créé la partie (MP « ✅ … a créé la partie privée ») ;
    - consigne de couleur : équipe A en 🔵 Bleu, équipe B en 🟠 Orange ;
    - consigne : à la fin du match, le bot leur envoie un MP pour déclarer le score.
 4. **Le capitaine clique sur « Partie privée créée »** (voir plus bas) : les autres joueurs sont prévenus, et le délai `DELAI_DECLARATION` (**6 min** par défaut) démarre.
@@ -55,7 +55,7 @@ Sans `golden_round` (ou avec `golden_round: 1`), la zone haute rapporte +3 dès 
 ### Bouton « Partie privée créée »
 
 - Seul le capitaine qui doit créer la partie a ce bouton (un autre joueur qui clique est refusé).
-- **Au clic** : les 3 autres joueurs reçoivent « ✅ … a créé la partie privée, tu peux la rejoindre », le bouton devient gris, et le délai de 6 min avant la demande de score démarre.
+- **Au clic** : les autres joueurs reçoivent « ✅ … a créé la partie privée, tu peux la rejoindre » avec le nom et le mot de passe, le bouton devient gris, et le délai de 6 min avant la demande de score démarre.
 - Seul le premier clic compte. Un clic sur un autre bouton (celui du rappel, ou après un redémarrage) répond juste « Déjà noté ».
 - **Pas de clic** : rappel au capitaine après `RAPPEL_CLIC_PP` (3 min), puis après `ATTENTE_CLIC_PP_MAX` (10 min) le délai de 6 min démarre quand même, avec une alerte dans `LOG_CHANNEL`.
 - Le clic est enregistré dans le JSON du match (`pp_creee_le`, `pp_creee_par`).
