@@ -59,7 +59,7 @@ python rl_join_bot.py --name 111 --password 111 --resolution 1920x1200 --languag
 python rl_match_watcher.py --output resultats.jsonl                                 # lecture seule du score, partie rejointe à la main
 ```
 
-Pour tester un tournoi complet sans jouer : `SIMULATION=1` et `DELAI_DECLARATION=5` dans le `.env` de `tournament_manager` (clics et déclarations automatiques, `SIMULATION_PROBA_DESACCORD` pour tester les désaccords ; les vrais MP partent quand même). Scores simulés sans Discord : `.venv\Scripts\python -m bot_tournament_manager.simulation`.
+Pour tester un tournoi complet sans jouer : `SIMULATION=1` et `DELAI_DECLARATION=5` dans le `.env` de `tournament_manager` (clics, validations des participations et déclarations automatiques, `AUTO_VALIDATION=0` pour que personne ne valide tout seul, `SIMULATION_PROBA_DESACCORD` pour tester les désaccords ; les vrais MP partent quand même). Scores simulés sans Discord : `.venv\Scripts\python -m bot_tournament_manager.simulation`.
 
 `PP_FORCEE_ZONE_2` (`.env` de `tournament_manager`, **tests uniquement**) impose le nom et le mot de passe de la partie privée de la zone 2 (`nom:mot_de_passe`, ou `nom` seul si les deux sont identiques), par exemple pour tester sur une partie déjà créée. Le bot logge un avertissement à chaque round. À laisser vide pour un vrai tournoi.
 

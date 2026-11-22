@@ -122,13 +122,15 @@ def _config_env(monkeypatch, tmp_path, **variables):
 
 
 def test_config_simulation(monkeypatch, tmp_path):
-    for nom in ("SIMULATION", "SIMULATION_DELAI_CLIC", "SIMULATION_DELAI_DECLARATION", "SIMULATION_PROBA_DESACCORD"):
+    for nom in ("SIMULATION", "SIMULATION_DELAI_CLIC", "SIMULATION_DELAI_DECLARATION", "SIMULATION_PROBA_DESACCORD",
+                "AUTO_VALIDATION"):
         monkeypatch.delenv(nom, raising=False)
     config = _config_env(monkeypatch, tmp_path)
-    assert config.simulation is False
+    assert config.simulation is False and config.auto_validation is True
     config = _config_env(monkeypatch, tmp_path, SIMULATION="1", SIMULATION_DELAI_CLIC="2",
                          SIMULATION_PROBA_DESACCORD="0,3")
     assert config.simulation is True and config.simulation_delai_clic == 2
     assert config.simulation_delai_declaration == 5 and config.simulation_proba_desaccord == 0.3
+    assert _config_env(monkeypatch, tmp_path, AUTO_VALIDATION="0").auto_validation is False
     with pytest.raises(ErreurConfig, match="SIMULATION doit valoir"):
         _config_env(monkeypatch, tmp_path, SIMULATION="peut-être")

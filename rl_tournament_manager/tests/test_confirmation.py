@@ -245,3 +245,16 @@ def test_liste_d_attente_incomplete_ignoree():
     tournoi = inscription(nb_inscrites=2, nb_attente=2)
     tournoi["equipes"][2]["joueurs"][1]["statut"] = "en_attente"  # équipe 3 : un joueur n'a pas confirmé
     assert [e["id"] for e in L.equipes_en_attente(tournoi)] == [4]
+
+
+def test_simulation_sans_auto_validation_personne_ne_valide(tmp_path):
+    async def scenario():
+        simulation = Simulation(delai_clic=0, delai_declaration=0, auto_validation=False, rng=random.Random(2))
+        g, stockage, _ = creer(tmp_path, inscription(nb_inscrites=2, nb_attente=0), simulation=simulation)
+        await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN, delai_confirmation=DELAI)
+        await asyncio.wait_for(g.attendre_confirmation(TID), 5)
+        await g.fermer()
+        return stockage.charger_init(TID)
+
+    init = asyncio.run(scenario())
+    assert init["confirmation"]["validees"] == {} and init["confirmation"]["perdues"] == [1, 2]

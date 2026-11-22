@@ -33,6 +33,7 @@ class Config:
     simulation_delai_clic: float = 5
     simulation_delai_declaration: float = 5
     simulation_proba_desaccord: float = 0
+    auto_validation: bool = True      # AUTO_VALIDATION=1 : en simulation, « Valider ma participation » automatique
     pp_forcee_zone_2: tuple[str, str] | None = None  # TESTS : (nom, mot de passe) imposés à la zone 2
 
 
@@ -85,10 +86,12 @@ def _id_salon(nom: str) -> int | None:
     return int(brut) if brut else None
 
 
-def _oui_non(nom: str) -> bool:
-    """1 / oui / true → True ; vide / 0 / non / false → False."""
+def _oui_non(nom: str, defaut: bool = False) -> bool:
+    """1 / oui / true → True ; 0 / non / false → False ; vide → `defaut`."""
     brut = os.getenv(nom, "").strip().lower()
-    if brut in ("", "0", "non", "no", "false"):
+    if not brut:
+        return defaut
+    if brut in ("0", "non", "no", "false"):
         return False
     if brut in ("1", "oui", "yes", "true"):
         return True
@@ -139,6 +142,7 @@ def charger_config() -> Config:
         simulation_delai_clic=_nombre("SIMULATION_DELAI_CLIC", 5.0, 0),
         simulation_delai_declaration=_nombre("SIMULATION_DELAI_DECLARATION", 5.0, 0),
         simulation_proba_desaccord=_nombre("SIMULATION_PROBA_DESACCORD", 0.0, 0, 1),
+        auto_validation=_oui_non("AUTO_VALIDATION", defaut=True),
         pp_forcee_zone_2=_pp_forcee("PP_FORCEE_ZONE_2"),
         log_channel=_id_salon("LOG_CHANNEL"),
         salon_resultats=_id_salon("SALON_RESULTATS"),

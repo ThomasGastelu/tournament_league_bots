@@ -256,7 +256,7 @@ Pour tester un tournoi sans jouer : `DELAI_DECLARATION=5` et `ATTENTE_CLIC_PP_MA
 ### Mode simulation (`SIMULATION=1`)
 
 Le tournoi se joue tout seul, sans joueurs (code : `simulation.py`) :
-0. après `/start_tournament_init`, le capitaine de chaque équipe « clique » sur **Valider ma participation** après `SIMULATION_DELAI_CLIC` secondes ;
+0. après `/start_tournament_init`, le capitaine de chaque équipe « clique » sur **Valider ma participation** après `SIMULATION_DELAI_CLIC` secondes (sauf avec `AUTO_VALIDATION=0` : personne ne valide tout seul, pour tester les places perdues et la liste d'attente) ;
 1. le capitaine « clique » sur **Partie privée créée** après `SIMULATION_DELAI_CLIC` secondes ;
 2. le bot attend `DELAI_DECLARATION` comme en vrai (mets-le à 5 pour aller vite), puis envoie les MP de déclaration ;
 3. chaque équipe déclare un score tiré au hasard (jamais d'égalité) après `SIMULATION_DELAI_DECLARATION` secondes. Les deux équipes déclarent le même score : le match est validé tout seul.
@@ -266,6 +266,7 @@ Le tournoi se joue tout seul, sans joueurs (code : `simulation.py`) :
 | `SIMULATION` | 0 | 1 pour activer le mode simulation. |
 | `SIMULATION_DELAI_CLIC` | 5 | Secondes avant le clic automatique « Partie privée créée ». |
 | `SIMULATION_DELAI_DECLARATION` | 5 | Secondes entre le MP de déclaration et les déclarations automatiques. |
+| `AUTO_VALIDATION` | 1 | En simulation, 1 : chaque équipe valide sa participation toute seule. 0 : aucune validation automatique (les vrais joueurs peuvent cliquer), les équipes qui ne valident pas perdent leur place comme en vrai. Sans effet si `SIMULATION=0`. |
 | `SIMULATION_PROBA_DESACCORD` | 0 | Probabilité (0 à 1) que les deux équipes déclarent des scores différents : alerte dans `LOG_CHANNEL`, et un admin tranche avec `/set_result_tournament_rl`. |
 
 ⚠️ Les vrais MP partent quand même aux joueurs inscrits : utilise-le sur un tournoi de test, et remets `SIMULATION=0` avant un vrai tournoi. Au démarrage, la console et `LOG_CHANNEL` le rappellent.

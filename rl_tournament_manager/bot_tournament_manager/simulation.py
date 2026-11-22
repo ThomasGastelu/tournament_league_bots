@@ -52,10 +52,11 @@ def score_different(score: tuple[int, int], rng: random.Random) -> tuple[int, in
 
 class Simulation:
     def __init__(self, *, delai_clic: float = 5, delai_declaration: float = 5, proba_desaccord: float = 0,
-                 rng: random.Random | None = None) -> None:
+                 auto_validation: bool = True, rng: random.Random | None = None) -> None:
         self.delai_clic = delai_clic
         self.delai_declaration = delai_declaration
         self.proba_desaccord = proba_desaccord
+        self.auto_validation = auto_validation  # AUTO_VALIDATION : « Valider ma participation » automatique
         self.rng = rng or random.Random()
         self.gestionnaire: GestionnaireTournois | None = None
         self._taches: set[asyncio.Task] = set()
@@ -74,7 +75,9 @@ class Simulation:
 
     def confirmations_demandees(self, init: dict, equipes: list[dict] | None = None) -> None:
         """/start_tournament_init (ou équipes montées de la liste d'attente) : le capitaine de chaque
-        équipe va « valider » sa participation."""
+        équipe va « valider » sa participation (sauf AUTO_VALIDATION=0)."""
+        if not self.auto_validation:
+            return
         for equipe in equipes if equipes is not None else init["equipes"].values():
             self._lancer(self._valider(init["tournoi_id"], equipe["id"], equipe["capitaine_id"]))
 

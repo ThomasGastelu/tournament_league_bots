@@ -51,7 +51,8 @@ class BotTournoi(discord.Client):
             pp_forcee_zone_2=config.pp_forcee_zone_2,
             simulation=Simulation(delai_clic=config.simulation_delai_clic,
                                   delai_declaration=config.simulation_delai_declaration,
-                                  proba_desaccord=config.simulation_proba_desaccord) if config.simulation else None,
+                                  proba_desaccord=config.simulation_proba_desaccord,
+                                  auto_validation=config.auto_validation) if config.simulation else None,
         )
         self.journal = JournalDiscord(self.messagerie.journal) if config.log_channel else None
         self._demarrage_annonce = False
