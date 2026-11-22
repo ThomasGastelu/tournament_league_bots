@@ -11,6 +11,7 @@ Ce fichier guide Claude (et tout contributeur) dans ce dépôt.
 | `rl_bot_ppname_creator/` | `bot_inscription_manager` | Inscriptions aux tournois (`/tournoi_rl*`), liste d'attente, confirmations des coéquipiers. Contient aussi le script `generer_pp_names.py` (noms / mots de passe des parties privées). |
 | `rl_tournament_manager/` | `bot_tournament_manager` | Fait jouer un tournoi inscrit : zones, rounds, MP avec les parties privées, prise des scores, déclarations, classement (`/start_tournament_rl`, `/stop_…`, `/reset_…`, `/set_result_…`, `/edit_player_…`). |
 | `rl_bot_mp/` | `bot_mp` | `/mp_all` : envoie un MP à tous les membres du serveur (admins). Indépendant des deux autres. |
+| `rl_bot_ticket/` | `bot_ticket` | Tickets de support : `/ticket_panel` publie le panneau « Support » ; le bouton « 🎫 Créer un ticket » ouvre un salon privé (auteur + `ROLES_STAFF`) selon la catégorie choisie. Indépendant des autres, sans fichier `data/`. |
 | `rl_api_pp_connector/` | scripts (`python rl_join_bot.py …`) | Connecteur Rocket League : `rl_join_bot.py` rejoint une partie privée en pilotant les menus (pyautogui / pydirectinput, positions calibrées dans `positions.json`, OCR Tesseract facultatif) ; `rl_match_watcher.py` lit le score via la **Stats API** locale (`127.0.0.1:49123`). Utilisé seul ou par `tournament_manager` avec `OBSERVATEUR=rl`. |
 
 Dépôt Git : `ThomasGastelu/tournament_league_bots`, branche `main`. L'utilisateur travaille sous **Windows** (PowerShell). Chaque bot a un `README.md` détaillé en français : le lire avant de modifier un bot.
@@ -41,13 +42,13 @@ bot_tournament_manager   ──lit───────────────�
 
 ## Lancer et tester
 
-Toutes les commandes se lancent **depuis le dossier du bot** (`rl_bot_mp/`, `rl_bot_ppname_creator/` ou `rl_tournament_manager/`) :
+Toutes les commandes se lancent **depuis le dossier du bot** (`rl_bot_mp/`, `rl_bot_ticket/`, `rl_bot_ppname_creator/` ou `rl_tournament_manager/`) :
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 copy .env.example .env      # puis remplir (au minimum DISCORD_TOKEN et GUILD_ID)
-.venv\Scripts\python -m <paquet>          # bot_mp, bot_inscription_manager ou bot_tournament_manager
+.venv\Scripts\python -m <paquet>          # bot_mp, bot_ticket, bot_inscription_manager ou bot_tournament_manager
 .venv\Scripts\python -m pytest
 ```
 
@@ -99,6 +100,8 @@ Les trois bots suivent le même découpage. Respecter cette séparation :
 - `stockage.py` : lecture / écriture JSON, un fichier par tournoi, écriture atomique (`.json.tmp` puis `os.replace`), un `asyncio.Lock` par tournoi (`verrou(tournoi_id)`).
 - Textes et embeds séparés de la logique (`embeds.py`, `messages.py`).
 
+Spécifique à `bot_ticket` : `tickets.py` (boutons « Créer un ticket » et « Fermer le ticket » en `DynamicItem`, liste des catégories, création / fermeture des salons). Pas de `stockage.py` : l'auteur et la catégorie d'un ticket sont dans le sujet du salon (`ticket:<id>:<catégorie>`). Embeds en bleu `0x5865F2` pour ressembler au modèle du panneau Support.
+
 Spécifique à `bot_inscription_manager` : `inscription.py` (bouton S'inscrire, fiches, boutons Valider / Refuser / Annuler en `DynamicItem`, expiration des inscriptions vérifiée chaque minute).
 
 Spécifique à `bot_tournament_manager` :
@@ -136,7 +139,7 @@ Spécifique à `bot_tournament_manager` :
 - Textes Discord : tutoiement, phrases courtes, emoji en tête (✅ ❌ ⏳ 📨 📝 🔒 ⚠️ 👀 ⭐ 🌟), pluriels gérés. Réponses aux admins en éphémère.
 - « Admins » = permission **Gérer le serveur** (`@app_commands.default_permissions(manage_guild=True)`).
 - `from __future__ import annotations` et annotations de type sur les signatures. `logique` souvent importé sous l'alias `L`.
-- Couleur des embeds : orange `0xE67E22`, commune aux bots.
+- Couleur des embeds : orange `0xE67E22`, commune aux bots (sauf `bot_ticket`, en bleu `0x5865F2`).
 - Erreurs : attraper `discord.Forbidden` / `discord.HTTPException` au plus près, logger, et toujours donner un message compréhensible (jamais une trace). Une erreur sur un joueur ou une zone ne doit pas arrêter les autres.
 - Quand une permission Discord manque, dire quoi cocher et où.
 - Tests nommés en français, décrivant le comportement (`test_annuler_n_envoie_rien`). Chaque nouveau comportement s'accompagne d'un test.
