@@ -1,34 +1,34 @@
-"""Tournois complets, joués avec le simulateur et une fausse messagerie Discord."""
+"""Tournois complets, joués avec une fausse messagerie Discord : les joueurs déclarent les scores."""
 
 import asyncio
 import json
 import random
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from bot_tournament_manager import logique as L
 from bot_tournament_manager.deroulement import GestionnaireTournois
-from bot_tournament_manager.simulateur import ObservateurSimule
 from bot_tournament_manager.stockage import Stockage
 
-from .outils import (ADMIN, SERVEUR, FausseMessagerie, attendre_que, ecrire_inscription, faux_pp,
+from .outils import (ADMIN, SERVEUR, FausseMessagerie, attendre_que, ecrire_inscription, faux_pp, score_auto,
                      tournoi_inscription)
 
 TID = "1571169059024928818"
 
 
-def creer(tmp_path: Path, nb_equipes: int, *, duree: float = 0, sans_gagnant: float = 0, graine: int = 1,
+def creer(tmp_path: Path, nb_equipes: int, *, delai: float = 0, declaration_auto: bool = True, graine: int = 1,
           clic_auto: bool = True, rappel: float = 60, attente_max: float = 120):
-    """Par défaut, chaque capitaine clique tout de suite sur « Partie privée créée »."""
+    """Par défaut, chaque capitaine clique tout de suite sur « Partie privée créée », le bot demande le
+    score sans attendre (`delai` = DELAI_DECLARATION) et les deux équipes déclarent le même score."""
     ecrire_inscription(tmp_path / "inscriptions", tournoi_inscription(nb_equipes, TID))
     stockage = Stockage(tmp_path / "inscriptions", tmp_path / "data")
-    messagerie = FausseMessagerie(clic_auto=clic_auto)
-    observateur = ObservateurSimule(duree_min=duree, duree_max=duree, proba_sans_gagnant=sans_gagnant,
-                                    proba_couleurs_inversees=0.5, rng=random.Random(graine))
-    gestionnaire = GestionnaireTournois(stockage, observateur, messagerie, script_pp=Path("inutile.py"),
+    messagerie = FausseMessagerie(clic_auto=clic_auto, declaration_auto=declaration_auto)
+    gestionnaire = GestionnaireTournois(stockage, messagerie, script_pp=Path("inutile.py"),
                                         pause_entre_rondes=0, rappel_clic_pp=rappel, attente_clic_pp_max=attente_max,
-                                        generer_pp=faux_pp, rng=random.Random(graine))
+                                        delai_declaration=delai, generer_pp=faux_pp, rng=random.Random(graine))
     messagerie.gestionnaire = gestionnaire
     return gestionnaire, stockage, messagerie
 
@@ -48,8 +48,9 @@ def test_tournoi_complet_8_equipes(tmp_path):
     assert all(e["matchs_joues"] == 3 for e in etat["equipes"].values())
     # Par ronde : 3 victoires à +1 et 1 victoire en zone haute à +3.
     assert sum(e["points"] for e in etat["equipes"].values()) == 3 * (3 + 3)
-    # Les couleurs inversées par le simulateur ont toutes été retrouvées grâce aux pseudos.
-    assert all(m["couleurs_detectees_par"] == "pseudos" for r in etat["rondes"] for m in r["matchs"])
+    # Score déclaré par les équipes.
+    assert all((m["score"]["equipe_a"], m["score"]["equipe_b"]) == score_auto(r["numero"], m["zone"])
+               for r in etat["rondes"] for m in r["matchs"])
 
     # Les gagnants montent, les perdants descendent.
     for avant, apres in zip(etat["rondes"], etat["rondes"][1:]):
@@ -68,14 +69,16 @@ def test_tournoi_complet_8_equipes(tmp_path):
     joueur = etat["equipes"]["1"]["joueurs"][1]["id"]
     textes = messagerie.mps_de(joueur)
     assert sum("Rejoins-la" in t for t in textes) == 3
-    assert all("Ne quittez pas et ne relancez pas la partie" in t for t in textes if "Rejoins-la" in t)
+    assert all("le bot vous envoie un MP pour déclarer le score" in t for t in textes if "Rejoins-la" in t)
+    assert sum("Déclare le score de ton match" in t for t in textes) == 3
     fins = [t for t in textes if "Match terminé" in t]
-    assert len(fins) == 3 and all("vous pouvez quitter la partie" in t for t in fins)
+    assert len(fins) == 3 and all("déclaré par les deux équipes" in t for t in fins)
     assert sum("a créé la partie privée" in t for t in textes) == 3  # prévenu à chaque round
     assert all(m["pp_creee_par"] == etat["equipes"][str(m["equipe_a"])]["capitaine_id"]
                for r in etat["rondes"] for m in r["matchs"])
     assert "est terminé" in textes[-1]
-    assert all(m["source_resultat"] == L.SOURCE_BOT for r in etat["rondes"] for m in r["matchs"])
+    assert all(m["source_resultat"] == L.SOURCE_DECLARATIONS for r in etat["rondes"] for m in r["matchs"])
+    assert all(m["chrono_declaration"] == m["pp_creee_le"] for r in etat["rondes"] for m in r["matchs"])
 
     # Salon : une annonce par ronde + le classement final. Aucune alerte.
     assert len(messagerie.annonces) == 4
@@ -89,7 +92,7 @@ def test_tournoi_complet_8_equipes(tmp_path):
 
 def test_tous_les_matchs_se_jouent_en_meme_temps(tmp_path):
     async def scenario():
-        g, stockage, messagerie = creer(tmp_path, 8, duree=0.2)
+        g, stockage, messagerie = creer(tmp_path, 8, delai=1.5)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         max_simultanes = 0
         while g.est_actif(TID):
@@ -115,9 +118,9 @@ def attendre_a_valider(stockage):
     return attendre_que(tous_a_valider)
 
 
-def test_score_pas_pris_alerte_et_bouton_de_declaration(tmp_path):
+def test_apres_le_delai_bouton_de_declaration_sans_alerte(tmp_path):
     async def scenario():
-        g, stockage, messagerie = creer(tmp_path, 4, sans_gagnant=1)
+        g, stockage, messagerie = creer(tmp_path, 4, declaration_auto=False)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_a_valider(stockage)
         assert g.est_actif(TID)  # le round attend
@@ -131,23 +134,39 @@ def test_score_pas_pris_alerte_et_bouton_de_declaration(tmp_path):
     assert etat["statut"] == L.TERMINE
     assert all(m["valide_par"] == ADMIN and m["source_resultat"] == L.SOURCE_ADMIN for m in etat["rondes"][0]["matchs"])
 
-    # Une alerte par zone (LOG_CHANNEL), avec de quoi rejoindre la partie et entrer le score.
-    alertes = messagerie.titres_alertes()
-    assert len(alertes) == 2
-    for match in avant["rondes"][0]["matchs"]:
-        alerte = next(a for a in alertes if f"zone:{match['zone']}" in a)
-        assert f"<@{ADMIN}>" in alerte
-        assert match["pp"]["nom"] in alerte and match["pp"]["mot_de_passe"] in alerte
-        assert "Pour rejoindre la partie à la main" in alerte and "/set_result_tournament_rl" in alerte
-    # Rien de tout ça dans le salon public (le mot de passe y serait visible).
-    assert not any(t and "set_result" in t for t, _ in messagerie.annonces)
+    # Demander le score aux joueurs est le cas normal : pas d'alerte aux admins.
+    assert messagerie.alertes == []
+    assert all(m["raison_a_valider"] == L.RAISON_DECLARATION for m in avant["rondes"][0]["matchs"])
 
     # Chaque joueur (4 équipes × 2) a reçu le bouton de déclaration pour SON équipe.
     assert len(messagerie.boutons) == 8
     for joueur, (numero, zone, equipe_id) in messagerie.boutons:
         assert numero == 1
         assert any(j["id"] == joueur for j in avant["equipes"][str(equipe_id)]["joueurs"])
-    assert any("Déclare le score de ton match" in t for _, t in messagerie.mps)
+    declarations = [t for _, t in messagerie.mps if "Déclare le score de ton match" in t]
+    assert len(declarations) == 8 and not any("n'a pas pu prendre le score" in t for t in declarations)
+
+
+def test_le_bot_attend_le_delai_avant_de_demander_le_score(tmp_path):
+    async def scenario():
+        g, stockage, messagerie = creer(tmp_path, 2, delai=1.5, declaration_auto=False)
+        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
+                           and bool(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["pp_creee_le"]))
+        await asyncio.sleep(0.1)
+        avant = (stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["statut"], list(messagerie.boutons))
+        etat = stockage.charger_etat(TID)
+        m = etat["rondes"][0]["matchs"][0]
+        with pytest.raises(L.ErreurTournoi, match="pas encore fini"):
+            await g.declarer_score(TID, 1, 1, m["equipe_a"], 3, 1, par=_joueur(etat, m["equipe_a"]))
+        await attendre_a_valider(stockage)
+        apres = list(messagerie.boutons)
+        await g.fermer()
+        return avant, apres
+
+    (statut_avant, boutons_avant), boutons_apres = asyncio.run(scenario())
+    assert statut_avant == L.MATCH_EN_COURS and boutons_avant == []  # pas de demande avant la fin du délai
+    assert len(boutons_apres) == 4  # puis les 4 joueurs reçoivent le bouton
 
 
 def _joueur(etat, equipe_id):
@@ -156,13 +175,12 @@ def _joueur(etat, equipe_id):
 
 def test_les_deux_equipes_declarent_le_meme_score(tmp_path):
     async def scenario():
-        g, stockage, messagerie = creer(tmp_path, 2, sans_gagnant=1)
+        g, stockage, messagerie = creer(tmp_path, 2, declaration_auto=False)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_a_valider(stockage)
         etat = stockage.charger_etat(TID)
         m = etat["rondes"][0]["matchs"][0]
-        vu = L.score_vu_par_le_bot(m) or {"equipe_a": 0, "equipe_b": 0}
-        a, b = vu["equipe_a"] + 6, vu["equipe_b"]  # A gagne, jamais en dessous du score vu
+        a, b = 6, 0  # A gagne
 
         with pytest.raises(L.ErreurTournoi, match="ne joues pas"):
             await g.declarer_score(TID, 1, 1, m["equipe_a"], a, b, par=_joueur(etat, m["equipe_b"]))
@@ -182,18 +200,17 @@ def test_les_deux_equipes_declarent_le_meme_score(tmp_path):
     assert etat["equipes"][str(m["equipe_a"])]["points"] == 3  # 1 seule zone = zone haute
     fin = [t for _, t in messagerie.mps if "Match terminé" in t]
     assert fin and all("déclaré par les deux équipes" in t for t in fin)
-    assert len(messagerie.alertes) == 1  # seulement l'alerte « score pas pris »
+    assert messagerie.alertes == []
 
 
 def test_declarations_differentes_alerte_puis_admin(tmp_path):
     async def scenario():
-        g, stockage, messagerie = creer(tmp_path, 2, sans_gagnant=1)
+        g, stockage, messagerie = creer(tmp_path, 2, declaration_auto=False)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_a_valider(stockage)
         etat = stockage.charger_etat(TID)
         m = etat["rondes"][0]["matchs"][0]
-        vu = L.score_vu_par_le_bot(m) or {"equipe_a": 0, "equipe_b": 0}
-        a, b = vu["equipe_a"] + 6, vu["equipe_b"]
+        a, b = 6, 0
         await g.declarer_score(TID, 1, 1, m["equipe_a"], a, b, par=_joueur(etat, m["equipe_a"]))
         reponse = await g.declarer_score(TID, 1, 1, m["equipe_b"], b, a + 1, par=_joueur(etat, m["equipe_b"]))
         assert g.est_actif(TID)  # personne n'est d'accord : le round attend
@@ -205,33 +222,16 @@ def test_declarations_differentes_alerte_puis_admin(tmp_path):
     assert "score différent" in reponse
     assert etat["statut"] == L.TERMINE
     alertes = messagerie.titres_alertes()
-    assert len(alertes) == 2 and "pas déclaré le même score" in alertes[1] and "Déclarations des équipes" in alertes[1]
+    assert len(alertes) == 1 and "pas déclaré le même score" in alertes[0] and "Déclarations des équipes" in alertes[0]
+    assert "score à déclarer par les équipes" not in alertes[0]
     # Les 4 joueurs sont prévenus, avec de nouveau le bouton pour corriger.
     assert sum("pas déclaré le même score" in t for _, t in messagerie.mps) == 4
     assert len(messagerie.boutons) == 4 + 4
 
 
-def test_declaration_plus_basse_que_le_score_vu_alerte(tmp_path):
-    async def scenario():
-        g, stockage, messagerie = creer(tmp_path, 2, sans_gagnant=1)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
-        await attendre_a_valider(stockage)
-        etat = stockage.charger_etat(TID)
-        m = etat["rondes"][0]["matchs"][0]
-        m.update(score={"equipe_a": 2, "equipe_b": 2}, couleurs_detectees_par="pseudos")  # le bot a vu 2-2
-        stockage.sauvegarder_etat(etat)
-        reponse = await g.declarer_score(TID, 1, 1, m["equipe_a"], 1, 0, par=_joueur(etat, m["equipe_a"]))
-        await g.fermer()
-        return messagerie, reponse
-
-    messagerie, reponse = asyncio.run(scenario())
-    assert "plus bas que le dernier score vu" in reponse
-    assert "plus bas que le dernier score vu par le bot" in messagerie.titres_alertes()[-1]
-
-
 def test_admin_peut_forcer_un_match_bloque_en_cours(tmp_path):
     async def scenario():
-        g, stockage, _ = creer(tmp_path, 2, duree=60)  # le match « dure » 60 s
+        g, stockage, _ = creer(tmp_path, 2, delai=60)  # le bot attend 60 s avant de demander le score
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: stockage.charger_etat(TID)["rondes"]
                            and stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["statut"] == L.MATCH_EN_COURS)
@@ -246,7 +246,7 @@ def test_admin_peut_forcer_un_match_bloque_en_cours(tmp_path):
 
 def test_arret_du_tournoi(tmp_path):
     async def scenario():
-        g, stockage, messagerie = creer(tmp_path, 4, duree=60)
+        g, stockage, messagerie = creer(tmp_path, 4, delai=60)
         await g.demarrer(TID, 5, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"]))
         await g.arreter(TID, serveur_id=SERVEUR, par=ADMIN)
@@ -263,7 +263,7 @@ def test_arret_du_tournoi(tmp_path):
 
 def test_reprise_apres_redemarrage(tmp_path):
     async def premier_lancement():
-        g, stockage, _ = creer(tmp_path, 4, duree=60)
+        g, stockage, _ = creer(tmp_path, 4, delai=60)
         await g.demarrer(TID, 2, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: any(m["statut"] == L.MATCH_EN_COURS
                                        for r in stockage.charger_etat(TID)["rondes"] for m in r["matchs"]))
@@ -283,7 +283,7 @@ def test_reprise_apres_redemarrage(tmp_path):
 
 def test_refus_de_lancement(tmp_path):
     async def scenario():
-        g, _, _ = creer(tmp_path, 4, duree=60)
+        g, _, _ = creer(tmp_path, 4, delai=60)
         with pytest.raises(L.ErreurTournoi, match="Aucun tournoi"):
             await g.demarrer("123", 2, serveur_id=SERVEUR, lance_par=ADMIN)
         with pytest.raises(L.ErreurTournoi, match="Aucun tournoi"):
@@ -322,7 +322,8 @@ def test_le_bot_attend_le_clic_du_capitaine(tmp_path):
         await asyncio.sleep(0.1)
         etat = stockage.charger_etat(TID)
         m = etat["rondes"][0]["matchs"][0]
-        assert m["statut"] == L.MATCH_EN_COURS and m["pp_creee_le"] is None  # pas de clic : pas de score
+        assert m["statut"] == L.MATCH_EN_COURS and m["pp_creee_le"] is None  # pas de clic : pas de délai
+        assert m["chrono_declaration"] is None and messagerie.boutons == []
 
         capitaine = etat["equipes"][str(m["equipe_a"])]["capitaine_id"]
         assert messagerie.boutons_pp == [(capitaine, (1, 1))]  # seul le capitaine a le bouton
@@ -344,7 +345,7 @@ def test_le_bot_attend_le_clic_du_capitaine(tmp_path):
     assert messagerie.alertes == []
 
 
-def test_sans_clic_rappel_puis_le_bot_passe_quand_meme(tmp_path):
+def test_sans_clic_rappel_puis_le_delai_demarre_quand_meme(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2, clic_auto=False, rappel=0.05, attente_max=0.15)
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
@@ -352,10 +353,11 @@ def test_sans_clic_rappel_puis_le_bot_passe_quand_meme(tmp_path):
         return stockage.charger_etat(TID), messagerie
 
     etat, messagerie = asyncio.run(scenario())
-    assert etat["statut"] == L.TERMINE  # le bot est passé quand même
+    assert etat["statut"] == L.TERMINE  # le score a été demandé quand même
     match = etat["rondes"][0]["matchs"][0]
     capitaine = etat["equipes"][str(match["equipe_a"])]["capitaine_id"]
-    assert match["pp_creee_le"] is None and match["source_resultat"] == L.SOURCE_BOT
+    assert match["pp_creee_le"] is None and match["chrono_declaration"]
+    assert match["source_resultat"] == L.SOURCE_DECLARATIONS
     rappels = [t for j, t in messagerie.mps if j == capitaine and "Rappel" in t]
     assert len(rappels) == 1 and match["pp"]["mot_de_passe"] in rappels[0]
     assert messagerie.boutons_pp == [(capitaine, (1, 1))] * 2  # le rappel a aussi le bouton
@@ -365,7 +367,7 @@ def test_sans_clic_rappel_puis_le_bot_passe_quand_meme(tmp_path):
 
 def test_redemarrage_apres_le_clic(tmp_path):
     async def premier_lancement():
-        g, stockage, _ = creer(tmp_path, 2, duree=60)  # le capitaine clique, puis le match « dure »
+        g, stockage, _ = creer(tmp_path, 2, delai=60)  # le capitaine clique, puis le bot attend 60 s
         await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
                            and bool(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["pp_creee_le"]))
@@ -382,3 +384,49 @@ def test_redemarrage_apres_le_clic(tmp_path):
     assert etat["statut"] == L.TERMINE
     assert messagerie.boutons_pp == []
     assert any("Tu as indiqué que la partie est créée" in t for _, t in messagerie.mps)
+
+
+# --------------------------------------------------------------------------- #
+# Délai avant la demande de score, après un redémarrage
+# --------------------------------------------------------------------------- #
+
+def _redemarrer_avec_chrono(tmp_path, il_y_a: float, delai: float):
+    """Bot arrêté pendant le délai, relancé avec un départ du délai noté `il_y_a` secondes plus tôt.
+    Renvoie (secondes écoulées avant la demande de score, nombre de boutons de déclaration)."""
+    async def premier_lancement():
+        g, stockage, _ = creer(tmp_path, 2, delai=600)
+        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
+                           and bool(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["chrono_declaration"]))
+        await g.fermer()
+        etat = stockage.charger_etat(TID)
+        depart = datetime.now() - timedelta(seconds=il_y_a)
+        etat["rondes"][0]["matchs"][0]["chrono_declaration"] = depart.isoformat(timespec="seconds")
+        stockage.sauvegarder_etat(etat)
+
+    async def redemarrage():
+        g, stockage, messagerie = creer(tmp_path, 2, delai=delai, declaration_auto=False, clic_auto=False)
+        debut = time.monotonic()
+        g.reprendre()
+        await attendre_a_valider(stockage)
+        ecoule = time.monotonic() - debut
+        await g.fermer()
+        return ecoule, messagerie
+
+    asyncio.run(premier_lancement())
+    ecoule, messagerie = asyncio.run(redemarrage())
+    return ecoule, messagerie
+
+
+def test_redemarrage_le_delai_deja_passe_demande_le_score_tout_de_suite(tmp_path):
+    ecoule, messagerie = _redemarrer_avec_chrono(tmp_path, il_y_a=400, delai=360)
+    assert ecoule < 1
+    assert len(messagerie.boutons) == 4
+    assert messagerie.boutons_pp == []  # pas de nouveau bouton « Partie privée créée »
+
+
+def test_redemarrage_attend_seulement_le_temps_qui_reste(tmp_path):
+    # Délai de 360 s commencé il y a 359 s : il reste environ 1 s (horodatage à la seconde près).
+    ecoule, messagerie = _redemarrer_avec_chrono(tmp_path, il_y_a=359, delai=360)
+    assert ecoule < 3
+    assert len(messagerie.boutons) == 4

@@ -53,11 +53,20 @@ def faux_pp(_script: Path, nombre: int, sortie: Path) -> list[dict]:
     return parties
 
 
-class FausseMessagerie:
-    """Fausse messagerie Discord. Avec `clic_auto`, le capitaine clique tout de suite sur
-    « Partie privée créée » (il faut brancher `gestionnaire`)."""
+def score_auto(numero: int, zone: int) -> tuple[int, int]:
+    """Score (équipe A, équipe B) déclaré par `declaration_auto` : A gagne une zone sur deux."""
+    return (3, 1) if (numero + zone) % 2 else (0, 2)
 
-    def __init__(self, clic_auto: bool = True, salon_discussion: int | Exception | None = 4242) -> None:
+
+class FausseMessagerie:
+    """Fausse messagerie Discord (il faut brancher `gestionnaire` pour les clics automatiques).
+
+    `clic_auto` : le capitaine clique tout de suite sur « Partie privée créée ».
+    `declaration_auto` : au premier bouton « Déclarer le score » reçu par une équipe, elle déclare
+    le score de `score_auto` (les deux équipes sont donc d'accord)."""
+
+    def __init__(self, clic_auto: bool = True, salon_discussion: int | Exception | None = 4242,
+                 declaration_auto: bool = False) -> None:
         # Salon de discussion : ID renvoyé, None (pas créé) ou exception levée.
         self.salon_discussion = salon_discussion
         self.salons_crees: list[tuple[str, int]] = []  # (tournoi, nombre de MP déjà envoyés à ce moment)
@@ -72,6 +81,8 @@ class FausseMessagerie:
         self.annonces: list[tuple[str | None, list | None]] = []
         self.alertes: list[tuple[str | None, list | None]] = []
         self.clic_auto = clic_auto
+        self.declaration_auto = declaration_auto
+        self._declarees: set[tuple[str, int, int, int]] = set()
         self.gestionnaire = None
         self._clics: set[asyncio.Task] = set()
 
@@ -82,13 +93,33 @@ class FausseMessagerie:
         self.mps.append((joueur_id, texte))
         if declaration:
             self.boutons.append((joueur_id, declaration))
+            cle = (etat["tournoi_id"], *declaration)
+            if self.declaration_auto and self.gestionnaire is not None and cle not in self._declarees:
+                self._declarees.add(cle)
+                self._lancer(self._declarer(etat, declaration, joueur_id))
         if pp_creee:
             self.boutons_pp.append((joueur_id, pp_creee))
             if self.clic_auto and self.gestionnaire is not None:
-                tache = asyncio.create_task(self._cliquer(etat["tournoi_id"], pp_creee, joueur_id))
-                self._clics.add(tache)
-                tache.add_done_callback(self._clics.discard)
+                self._lancer(self._cliquer(etat["tournoi_id"], pp_creee, joueur_id))
         return True
+
+    def _lancer(self, coro) -> None:
+        tache = asyncio.create_task(coro)
+        self._clics.add(tache)
+        tache.add_done_callback(self._clics.discard)
+
+    async def _declarer(self, etat, declaration, joueur_id) -> None:
+        numero, zone, equipe_id = declaration
+        match = next(m for r in etat["rondes"] if r["numero"] == numero for m in r["matchs"] if m["zone"] == zone)
+        a, b = score_auto(numero, zone)
+        pour, contre = (a, b) if equipe_id == match["equipe_a"] else (b, a)
+        try:
+            await self.gestionnaire.declarer_score(etat["tournoi_id"], numero, zone, equipe_id, pour, contre,
+                                                   par=joueur_id)
+        except Exception:  # tournoi arrêté entre-temps…
+            pass
+        finally:
+            self._declarees.discard((etat["tournoi_id"], *declaration))  # le tournoi peut être relancé
 
     async def _cliquer(self, tournoi_id, pp_creee, joueur_id) -> None:
         try:

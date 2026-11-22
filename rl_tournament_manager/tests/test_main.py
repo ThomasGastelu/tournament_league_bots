@@ -12,9 +12,7 @@ def config(tmp_path) -> Config:
     return Config(
         token="a.b.c", serveur_id=1540386765054148639, salon_annonces=None, dossier_inscriptions=tmp_path,
         script_pp=tmp_path / "generer_pp_names.py", dossier_donnees=tmp_path / "data",
-        pause_entre_rondes=0, observateur="simulation",
-        simulation_duree_min=0, simulation_duree_max=0,
-        simulation_proba_sans_gagnant=0, simulation_proba_couleurs_inversees=0,
+        pause_entre_rondes=0,
     )
 
 

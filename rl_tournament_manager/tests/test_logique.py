@@ -17,20 +17,6 @@ def parties(n: int) -> list[dict]:
     return [{"match": i, "nom": f"pp{i}", "mot_de_passe": f"pp{i}"} for i in range(1, n + 1)]
 
 
-def resultat(bleu: list[str], orange: list[str], score_bleu: int, score_orange: int,
-             gagnant: int | None = None, statut: str = "terminé") -> dict:
-    if gagnant is None and statut == "terminé":
-        gagnant = 0 if score_bleu > score_orange else 1
-    return {
-        "winner_team_num": gagnant,
-        "teams": [{"team_num": 0, "name": "Blue", "score": score_bleu},
-                  {"team_num": 1, "name": "Orange", "score": score_orange}],
-        "players": [{"Name": n, "TeamNum": 0} for n in bleu] + [{"Name": n, "TeamNum": 1} for n in orange],
-        "partie": "pp1",
-        "statut": statut,
-    }
-
-
 # --------------------------------------------------------------------------- #
 # Lancement
 # --------------------------------------------------------------------------- #
@@ -130,41 +116,25 @@ def test_points_zone_haute_3_ailleurs_1_defaite_0():
         {"ronde": 1, "zone": 4, "adversaire": 8, "score": "2-1", "resultat": "victoire", "points": 3}]
 
 
-def test_resultat_lu_avec_les_pseudos_meme_si_couleurs_inversees():
+def test_chrono_de_declaration_part_du_clic_ou_de_maintenant():
     etat = etat_de(2)
-    ronde = L.nouvelle_ronde(etat, [(1, 2)], parties(1), fichier_pp="x", maintenant="t")
-    match = ronde["matchs"][0]
-    # L'équipe A (1) s'est mise en Orange et gagne 3-1.
-    termine = L.appliquer_resultat(etat, 1, match, resultat(["Cap2RL", "Mate2RL"], ["cap1rl ", "Mate1RL"], 1, 3), "t")
-    assert termine
-    assert match["vainqueur"] == 1
-    assert match["score"] == {"equipe_a": 3, "equipe_b": 1}
-    assert match["bleu"] == 2 and match["couleurs_detectees_par"] == "pseudos"
-    assert etat["equipes"]["1"]["points"] == 3  # une seule zone = zone haute
+    match = L.nouvelle_ronde(etat, [(1, 2)], parties(1), fichier_pp="x", maintenant="t")["matchs"][0]
+    assert L.demarrer_chrono_declaration(match, "2026-11-18T15:52:00") == "2026-11-18T15:52:00"  # sans clic
+    # Déjà noté (reprise après un redémarrage) : on garde le départ.
+    assert L.demarrer_chrono_declaration(match, "2026-11-18T16:00:00") == "2026-11-18T15:52:00"
+
+    match = L.nouvelle_ronde(etat, [(1, 2)], parties(1), fichier_pp="x", maintenant="t")["matchs"][0]
+    match["pp_creee_le"] = "2026-11-18T15:42:00"
+    assert L.demarrer_chrono_declaration(match, "2026-11-18T15:45:00") == "2026-11-18T15:42:00"  # le clic
 
 
-def test_pseudos_inconnus_on_applique_la_consigne():
+def test_ouvrir_declarations():
     etat = etat_de(2)
-    ronde = L.nouvelle_ronde(etat, [(1, 2)], parties(1), fichier_pp="x", maintenant="t")
-    match = ronde["matchs"][0]
-    L.appliquer_resultat(etat, 1, match, resultat(["inconnu"], ["autre"], 2, 0), "t")
-    assert match["vainqueur"] == 1 and match["couleurs_detectees_par"] == "consigne"
-
-
-@pytest.mark.parametrize("res, raison", [
-    (resultat(["Cap1RL"], ["Cap2RL"], 2, 2, gagnant=None, statut="quitté avant la fin"), "quitté avant la fin"),
-    (resultat(["Cap1RL"], ["Cap2RL"], 1, 1, gagnant=None, statut="connexion perdue"), "connexion perdue"),
-    ({"statut": "terminé", "winner_team_num": 0, "teams": [], "players": []}, "score illisible"),
-    (resultat(["Cap1RL"], ["Cap2RL"], 1, 3, gagnant=0), "le score ne correspond pas au vainqueur annoncé"),
-])
-def test_match_sans_vainqueur_passe_a_valider(res, raison):
-    etat = etat_de(2)
-    ronde = L.nouvelle_ronde(etat, [(1, 2)], parties(1), fichier_pp="x", maintenant="t")
-    match = ronde["matchs"][0]
-    assert not L.appliquer_resultat(etat, 1, match, res, "t")
-    assert match["statut"] == L.MATCH_A_VALIDER
-    assert match["raison_a_valider"] == raison
-    assert etat["equipes"]["1"]["matchs_joues"] == 0
+    match = L.nouvelle_ronde(etat, [(1, 2)], parties(1), fichier_pp="x", maintenant="t")["matchs"][0]
+    match["statut"] = L.MATCH_EN_COURS
+    L.ouvrir_declarations(match)
+    assert match["statut"] == L.MATCH_A_VALIDER and match["raison_a_valider"] == L.RAISON_DECLARATION
+    assert L.declarer_score(etat, 1, match, 1, 3, 1, par="a", maintenant="t") == L.DECLARATION_EN_ATTENTE
 
 
 def test_validation_manuelle():
@@ -186,13 +156,12 @@ def test_validation_manuelle():
 # Déclaration du score par les équipes
 # --------------------------------------------------------------------------- #
 
-def match_a_valider(score_vu=None, couleurs="pseudos"):
-    """Match équipe 1 (A) vs équipe 2 (B) dont le bot n'a pas le score."""
+def match_a_valider():
+    """Match équipe 1 (A) vs équipe 2 (B) dont les équipes doivent déclarer le score."""
     etat = etat_de(2)
     ronde = L.nouvelle_ronde(etat, [(1, 2)], parties(1), fichier_pp="x", maintenant="t")
     match = ronde["matchs"][0]
-    match.update(statut=L.MATCH_A_VALIDER, raison_a_valider="partie introuvable", score=score_vu,
-                 couleurs_detectees_par=couleurs)
+    match.update(statut=L.MATCH_A_VALIDER, raison_a_valider=L.RAISON_DECLARATION)
     return etat, match
 
 
@@ -218,20 +187,8 @@ def test_declarations_differentes_puis_correction():
     assert L.declarer_score(etat, 1, match, 2, 1, 3, par="b", maintenant="t") == L.DECLARATION_VALIDEE
 
 
-def test_declaration_plus_basse_que_le_score_vu_par_le_bot():
-    etat, match = match_a_valider(score_vu={"equipe_a": 2, "equipe_b": 2})
-    assert L.declarer_score(etat, 1, match, 1, 1, 0, par="a", maintenant="t") == L.DECLARATION_INCOHERENTE
-    assert L.declarer_score(etat, 1, match, 1, 3, 2, par="a", maintenant="t") == L.DECLARATION_EN_ATTENTE
-
-
-def test_score_vu_ignore_si_couleurs_pas_reconnues():
-    # Couleurs devinées avec la consigne : le score vu peut être inversé, on ne s'en sert pas.
-    etat, match = match_a_valider(score_vu={"equipe_a": 2, "equipe_b": 2}, couleurs="consigne")
-    assert L.declarer_score(etat, 1, match, 1, 1, 0, par="a", maintenant="t") == L.DECLARATION_EN_ATTENTE
-
-
 @pytest.mark.parametrize("statut, buts, erreur", [
-    (L.MATCH_EN_COURS, (3, 1), "s'occupe encore"),
+    (L.MATCH_EN_COURS, (3, 1), "pas encore fini"),
     (L.MATCH_ANNULE, (3, 1), "annulé"),
     (L.MATCH_A_VALIDER, (2, 2), "pas d'égalité"),
     (L.MATCH_A_VALIDER, (-1, 2), "négatif"),

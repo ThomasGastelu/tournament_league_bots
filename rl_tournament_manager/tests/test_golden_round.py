@@ -9,7 +9,6 @@ import pytest
 from bot_tournament_manager import logique as L
 from bot_tournament_manager import messages as M
 from bot_tournament_manager.deroulement import GestionnaireTournois
-from bot_tournament_manager.simulateur import ObservateurSimule
 from bot_tournament_manager.stockage import Stockage
 
 from .outils import ADMIN, SERVEUR, FausseMessagerie, ecrire_inscription, faux_pp, tournoi_inscription
@@ -87,11 +86,9 @@ def test_status_avant_le_golden_round():
 def gestionnaire(tmp_path: Path):
     ecrire_inscription(tmp_path / "inscriptions", tournoi_inscription(8, TID))
     stockage = Stockage(tmp_path / "inscriptions", tmp_path / "data")
-    messagerie = FausseMessagerie()
-    observateur = ObservateurSimule(duree_min=0, duree_max=0, proba_sans_gagnant=0, proba_couleurs_inversees=0.5,
-                                    rng=random.Random(3))
-    g = GestionnaireTournois(stockage, observateur, messagerie, script_pp=Path("inutile.py"), pause_entre_rondes=0,
-                             generer_pp=faux_pp, rng=random.Random(3))
+    messagerie = FausseMessagerie(declaration_auto=True)
+    g = GestionnaireTournois(stockage, messagerie, script_pp=Path("inutile.py"), pause_entre_rondes=0,
+                             delai_declaration=0, generer_pp=faux_pp, rng=random.Random(3))
     messagerie.gestionnaire = g
     return g, stockage, messagerie
 

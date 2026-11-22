@@ -78,7 +78,7 @@ def test_texte_de_confirmation():
 
 def test_remise_a_zero_d_un_tournoi_en_cours(tmp_path):
     async def scenario():
-        g, stockage, messagerie = creer(tmp_path, 4, duree=60)
+        g, stockage, messagerie = creer(tmp_path, 4, delai=60)
         await g.demarrer(TID, 5, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"]))
         assert stockage.fichiers_du_tournoi(TID)  # état + parties privées du round 1

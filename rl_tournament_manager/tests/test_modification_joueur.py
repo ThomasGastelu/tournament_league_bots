@@ -12,7 +12,6 @@ import pytest
 from bot_tournament_manager import logique as L
 from bot_tournament_manager import messages as M
 from bot_tournament_manager.deroulement import GestionnaireTournois, MessagerieDiscord
-from bot_tournament_manager.simulateur import ObservateurSimule
 from bot_tournament_manager.stockage import Stockage
 
 from .outils import ADMIN, SERVEUR, FausseMessagerie, attendre_que, ecrire_inscription, faux_pp, tournoi_inscription
@@ -111,18 +110,18 @@ def test_modifications_refusees(joueur, valeurs, erreur):
 
 
 # --------------------------------------------------------------------------- #
-# Pendant un vrai tournoi (simulateur + fausse messagerie)
+# Pendant un vrai tournoi (fausse messagerie)
 # --------------------------------------------------------------------------- #
 
-def creer(tmp_path: Path, *, sans_gagnant: float = 0, observateur=None):
-    """Tournoi à 2 équipes (1 zone). Les capitaines ne cliquent pas tout seuls."""
+def creer(tmp_path: Path, *, declaration_auto: bool = True):
+    """Tournoi à 2 équipes (1 zone). Les capitaines ne cliquent pas tout seuls ; le bot demande le score
+    dès le clic (délai de 0 s) et, avec `declaration_auto`, les équipes le déclarent tout de suite."""
     ecrire_inscription(tmp_path / "inscriptions", tournoi_inscription(2, TID))
     stockage = Stockage(tmp_path / "inscriptions", tmp_path / "data")
-    messagerie = FausseMessagerie(clic_auto=False)
-    observateur = observateur or ObservateurSimule(duree_min=0, duree_max=0, proba_sans_gagnant=sans_gagnant,
-                                                   proba_couleurs_inversees=0, rng=random.Random(1))
-    g = GestionnaireTournois(stockage, observateur, messagerie, script_pp=Path("inutile.py"), pause_entre_rondes=0,
-                             rappel_clic_pp=60, attente_clic_pp_max=120, generer_pp=faux_pp, rng=random.Random(1))
+    messagerie = FausseMessagerie(clic_auto=False, declaration_auto=declaration_auto)
+    g = GestionnaireTournois(stockage, messagerie, script_pp=Path("inutile.py"), pause_entre_rondes=0,
+                             rappel_clic_pp=60, attente_clic_pp_max=120, delai_declaration=0, generer_pp=faux_pp,
+                             rng=random.Random(1))
     messagerie.gestionnaire = g
     return g, stockage, messagerie
 
@@ -205,16 +204,15 @@ def test_remplacant_sans_gerer_les_roles(tmp_path):
 
     notes = asyncio.run(scenario())
     assert any("Gérer les rôles" in n and "à la main" in n for n in notes)
-    assert any("pas de pseudo en jeu" in n for n in notes)
 
 
 def test_remplacant_d_un_match_a_valider_peut_declarer(tmp_path):
     async def scenario():
-        g, stockage, messagerie = creer(tmp_path, sans_gagnant=1)
+        g, stockage, messagerie = creer(tmp_path, declaration_auto=False)
         etat, match = await lancer(g, stockage, messagerie)
         equipe_a, equipe_b = match["equipe_a"], match["equipe_b"]
         await g.signaler_pp_creee(TID, 1, 1, par=L.equipe(etat, equipe_a)["capitaine_id"])
-        await attendre_que(lambda: messagerie.boutons)  # le bot n'a pas le score : déclarations
+        await attendre_que(lambda: messagerie.boutons)  # délai passé : déclarations
         remplace = L.equipe(etat, equipe_b)["joueurs"][1]["id"]
 
         await g.modifier_joueur(TID, remplace, serveur_id=SERVEUR, par=ADMIN, remplacant=(REMPLACANT, "Remplaçant"))
@@ -229,36 +227,6 @@ def test_remplacant_d_un_match_a_valider_peut_declarer(tmp_path):
     etat = asyncio.run(scenario())
     assert etat["statut"] == L.TERMINE
     assert etat["rondes"][0]["matchs"][0]["source_resultat"] == L.SOURCE_DECLARATIONS
-
-
-class ObservateurEspion:
-    """Garde les parties à observer ; ne trouve jamais le score."""
-
-    def __init__(self) -> None:
-        self.parties = []
-
-    async def observer(self, partie):
-        self.parties.append(partie)
-        return {"statut": "partie introuvable", "winner_team_num": None}
-
-
-def test_pseudo_en_jeu_change_avant_le_clic_arrive_a_l_observateur(tmp_path):
-    async def scenario():
-        espion = ObservateurEspion()
-        g, stockage, messagerie = creer(tmp_path, observateur=espion)
-        etat, match = await lancer(g, stockage, messagerie)
-        equipe_a = L.equipe(etat, match["equipe_a"])
-        coequipier = next(j["id"] for j in equipe_a["joueurs"] if j["id"] != equipe_a["capitaine_id"])
-
-        _, _, notes = await g.modifier_joueur(TID, coequipier, serveur_id=SERVEUR, par=ADMIN, pseudo_jeu="NouveauRL")
-        await g.signaler_pp_creee(TID, 1, 1, par=equipe_a["capitaine_id"])
-        await attendre_que(lambda: espion.parties)
-        await g.arreter(TID, serveur_id=SERVEUR, par=ADMIN)
-        return espion.parties[0], notes
-
-    partie, notes = asyncio.run(scenario())
-    assert "NouveauRL" in partie.pseudos_bleu
-    assert any("prochain score" in n for n in notes)
 
 
 def test_tournoi_arrete_pas_modifiable(tmp_path):

@@ -1,6 +1,6 @@
 # tournament_manager — bot Discord qui fait jouer les tournois Rocket League
 
-Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), répartit les équipes dans des **zones**, envoie les infos de partie privée en MP, prend les scores et tient le classement.
+Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), répartit les équipes dans des **zones**, envoie les infos de partie privée en MP, demande les scores aux joueurs et tient le classement.
 
 ## Commandes
 
@@ -9,7 +9,7 @@ Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), 
 | `/start_tournament_rl id_tournoi nombre_de_matchs [golden_round]` | admins | Lance le tournoi et crée son salon de discussion (voir « Salons »). `nombre_de_matchs` = nombre de matchs joués par chaque équipe (= nombre de rounds). `golden_round` (facultatif, 1 par défaut) = round à partir duquel la victoire en zone haute rapporte +3 (voir « Points »). |
 | `/start_tournament_rl_status id_tournoi` | tout le monde | Round en cours, état de chaque zone et classement (réponse visible par toi seul). |
 | `/stop_tournament_rl id_tournoi` | admins | Arrête le tournoi (après confirmation) : matchs en cours annulés, joueurs prévenus en MP. |
-| `/set_result_tournament_rl id_tournoi zone gagnant score_gagnant score_perdant` | admins | Fixe le score d'un match (score pas pris par le bot, déclarations différentes, match bloqué…). Toujours prioritaire. |
+| `/set_result_tournament_rl id_tournoi zone gagnant score_gagnant score_perdant` | admins | Fixe le score d'un match (déclarations différentes ou manquantes, match bloqué…). Toujours prioritaire. |
 | `/edit_player_tournament_rl id_tournoi joueur [pseudo_jeu] [pseudo] [nom_equipe] [devient_capitaine] [remplace_par]` | admins | Modifie un joueur pendant le tournoi (voir « Modifier un joueur pendant le tournoi »). |
 | `/reset_tournament_rl id_tournoi [garder_salon]` | admins | Remet le tournoi à zéro (après confirmation) : efface tout ce que le bot a gardé sur lui pour le relancer de zéro (voir « Remettre un tournoi à zéro »). |
 
@@ -18,7 +18,7 @@ Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), 
 
 Les joueurs n'ont pas de commande à taper, ils ont des boutons dans leurs MP :
 - **✅ Partie privée créée** : pour le capitaine qui crée la partie ;
-- **📝 Déclarer le score** : quand le bot n'a pas pu prendre un score.
+- **📝 Déclarer le score** : envoyé 6 minutes après la création de la partie (`DELAI_DECLARATION`).
 
 ## Déroulement
 
@@ -30,10 +30,10 @@ Les joueurs n'ont pas de commande à taper, ils ont des boutons dans leurs MP :
    - le capitaine de l'équipe A reçoit : « Vous devez créer la partie privée avec le nom = … et le mot de passe = … », avec le bouton **✅ Partie privée créée** ;
    - les autres joueurs des deux équipes reçoivent le nom et le mot de passe pour la rejoindre ;
    - consigne de couleur : équipe A en 🔵 Bleu, équipe B en 🟠 Orange ;
-   - consigne : **« Ne quittez pas et ne relancez pas la partie tant que le bot n'a pas pris le score. »**
-4. **Le capitaine clique sur « Partie privée créée »** (voir plus bas) : les autres joueurs sont prévenus, et le bot commence à prendre le score de ce match (avec le vrai connecteur, il passe dans les parties l'une après l'autre : voir plus bas).
-5. **Score pris** : chaque joueur reçoit « ✅ Le bot a pris le score : c'est bon, vous pouvez quitter la partie », avec le score, ses points et sa zone au prochain round. Le score et les points sont écrits dans le fichier JSON.
-6. **Score pas pris** (partie introuvable, joueurs partis avant le passage du bot, partie relancée…) : voir « Déclaration des scores » plus bas.
+   - consigne : à la fin du match, le bot leur envoie un MP pour déclarer le score.
+4. **Le capitaine clique sur « Partie privée créée »** (voir plus bas) : les autres joueurs sont prévenus, et le délai `DELAI_DECLARATION` (**6 min** par défaut) démarre.
+5. **6 minutes après le clic**, chaque joueur des deux équipes reçoit le MP « 📝 Déclare le score de ton match » avec le bouton **Déclarer le score** : voir « Déclaration des scores » plus bas. Le bot ne lit plus le score dans Rocket League.
+6. **Score validé** : chaque joueur reçoit le score, ses points et sa zone au prochain round. Le score et les points sont écrits dans le fichier JSON.
 7. Quand toutes les zones ont un score : pause (`PAUSE_ENTRE_RONDES`), puis round suivant :
    - le **gagnant monte** d'une zone (le gagnant de la zone haute y reste) ;
    - le **perdant descend** d'une zone (le perdant de la zone 1 y reste).
@@ -50,30 +50,24 @@ Le tout recommence `nombre_de_matchs` fois. À la fin, le classement final est p
 Sans `golden_round` (ou avec `golden_round: 1`), la zone haute rapporte +3 dès le round 1. `golden_round` doit être entre 1 et `nombre_de_matchs`. Exemple : 8 équipes, 4 rounds, `golden_round: 3` → aux rounds 1 et 2 toutes les victoires valent +1, ce qui laisse aux équipes le temps de monter ; aux rounds 3 et 4 la zone haute vaut +3. L'annonce de chaque round rappelle le golden round et le gain de chaque zone ; `/start_tournament_rl_status` affiche le barème du round en cours. Les tournois lancés avant cette option gardent le +3 dès le round 1.
 **Classement** : points, puis victoires, puis différence de buts, puis buts marqués.
 
-**Quelle équipe était en Bleu ?** Le bot compare les pseudos en jeu renvoyés par Rocket League aux `pseudo_jeu` du fichier d'inscription. Il voit donc si les équipes se sont trompées de couleur. S'il ne reconnaît personne, il applique la consigne (équipe A = Bleu).
-
-**Redémarrage** : tout est enregistré au fur et à mesure. Si le bot redémarre, les tournois en cours reprennent où ils en étaient, les joueurs des matchs en cours reçoivent un rappel, et les boutons déjà envoyés marchent toujours (un capitaine qui avait déjà cliqué n'a pas à recliquer).
+**Redémarrage** : tout est enregistré au fur et à mesure. Si le bot redémarre, les tournois en cours reprennent où ils en étaient, les joueurs des matchs en cours reçoivent un rappel, et les boutons déjà envoyés marchent toujours (un capitaine qui avait déjà cliqué n'a pas à recliquer). Le départ du délai avant la demande de score est noté dans le JSON (`chrono_declaration`) : après un redémarrage, le bot attend seulement le temps qui reste (et demande le score tout de suite si le délai est déjà passé).
 
 ### Bouton « Partie privée créée »
 
 - Seul le capitaine qui doit créer la partie a ce bouton (un autre joueur qui clique est refusé).
-- **Au clic** : les 3 autres joueurs reçoivent « ✅ … a créé la partie privée, tu peux la rejoindre », le bouton devient gris, et le bot commence à prendre le score.
+- **Au clic** : les 3 autres joueurs reçoivent « ✅ … a créé la partie privée, tu peux la rejoindre », le bouton devient gris, et le délai de 6 min avant la demande de score démarre.
 - Seul le premier clic compte. Un clic sur un autre bouton (celui du rappel, ou après un redémarrage) répond juste « Déjà noté ».
-- **Clic trop tôt** (partie pas encore créée) : le bot ne la trouve pas et réessaie au passage suivant. Dès le premier échec, le capitaine reçoit de nouveau le nom et le mot de passe.
-- **Pas de clic** : rappel au capitaine après `RAPPEL_CLIC_PP` (3 min), puis après `ATTENTE_CLIC_PP_MAX` (10 min) le bot passe quand même dans la partie, avec une alerte dans `LOG_CHANNEL`.
+- **Pas de clic** : rappel au capitaine après `RAPPEL_CLIC_PP` (3 min), puis après `ATTENTE_CLIC_PP_MAX` (10 min) le délai de 6 min démarre quand même, avec une alerte dans `LOG_CHANNEL`.
 - Le clic est enregistré dans le JSON du match (`pp_creee_le`, `pp_creee_par`).
 
 ### Déclaration des scores
 
-Quand le bot n'a pas pu prendre le score d'un match :
-- une **alerte** part dans `LOG_CHANNEL` (voir plus bas) ;
-- chaque joueur des deux équipes reçoit en MP le bouton **📝 Déclarer le score** : une petite fenêtre demande les buts de son équipe et ceux de l'adversaire.
+`DELAI_DECLARATION` secondes (360 = 6 min par défaut) après le clic « Partie privée créée », chaque joueur des deux équipes reçoit en MP le bouton **📝 Déclarer le score** : une petite fenêtre demande les buts de son équipe et ceux de l'adversaire. C'est le cas normal : pas d'alerte dans `LOG_CHANNEL`. Avant la fin du délai, le bouton n'existe pas encore.
 
 Ensuite :
 - un joueur de chaque équipe déclare ; une nouvelle déclaration remplace la précédente de son équipe ;
 - **les deux équipes déclarent le même score** → validé tout seul, MP de fin de match comme d'habitude ;
 - **scores différents** → alerte dans `LOG_CHANNEL` (avec les deux déclarations), et MP aux deux équipes « un admin va trancher » (elles peuvent encore corriger) ;
-- **score déclaré plus bas que le dernier score vu par le bot** (impossible) → alerte, pas de validation automatique ;
 - `/set_result_tournament_rl` reste prioritaire à tout moment.
 
 Le round attend que tous ses matchs aient un score ; les autres zones, elles, continuent normalement.
@@ -84,7 +78,7 @@ Le round attend que tous ses matchs aient un score ; les autres zones, elles, co
 
 | Option | Effet |
 |---|---|
-| `pseudo_jeu` | Son pseudo dans Rocket League. Sert à reconnaître la couleur de son équipe, dès le prochain score pris. Refusé s'il est déjà celui d'un autre joueur. |
+| `pseudo_jeu` | Son pseudo dans Rocket League (affiché aux admins dans les alertes). Refusé s'il est déjà celui d'un autre joueur. |
 | `pseudo` | Le pseudo affiché par le bot (MP, alertes). |
 | `nom_equipe` | Le nom de son équipe. Refusé si une autre équipe s'appelle déjà comme ça. |
 | `devient_capitaine: True` | Il devient capitaine de son équipe. L'ancien capitaine est prévenu en MP. Si son équipe doit encore créer la partie privée du round en cours, le nouveau capitaine reçoit le MP avec le bouton **✅ Partie privée créée**, et le bouton de l'ancien ne marche plus. |
@@ -128,12 +122,12 @@ Il faut au bot **Gérer les salons** et **Joindre des fichiers** (en plus des pe
 
 **`LOG_CHANNEL`** — à réserver aux admins, car il contient les mots de passe des parties :
 - « ✅ Bot démarré » au lancement du bot ;
-- les **alertes** (score pas pris, déclarations différentes, déclaration impossible, capitaine qui n'a pas cliqué sur « Partie privée créée »), qui mentionnent l'admin qui a lancé le tournoi et donnent :
+- les **alertes** (déclarations différentes, capitaine qui n'a pas cliqué sur « Partie privée créée »), qui mentionnent l'admin qui a lancé le tournoi et donnent :
   - le nom et le mot de passe de la partie, son créateur et les équipes (pour la rejoindre à la main) ;
-  - le dernier score vu par le bot et les déclarations des équipes ;
+  - les déclarations des équipes ;
   - la commande `/set_result_tournament_rl` déjà remplie, avec les numéros d'équipes ;
 - les **modifications de joueurs** faites avec `/edit_player_tournament_rl` (sans mentionner personne) ;
-- les **problèmes du bot** (avertissements et erreurs de la console : permissions, salon introuvable, calibration…), regroupés pour éviter le spam.
+- les **problèmes du bot** (avertissements et erreurs de la console : permissions, salon introuvable…), regroupés pour éviter le spam.
 
 Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le tournoi.
 
@@ -190,12 +184,14 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
           "statut": "termine",
           "score": { "equipe_a": 3, "equipe_b": 1 },
           "vainqueur": 1, "points_attribues": 1,
-          "bleu": 1, "couleurs_detectees_par": "pseudos",
-          "source_resultat": "bot",
-          "declarations": {},
+          "source_resultat": "declarations",
+          "declarations": {
+            "1": { "pour": 3, "contre": 1, "par": "1540386073958682779", "le": "2026-11-18T15:49:30" },
+            "2": { "pour": 1, "contre": 3, "par": "296738272648888321", "le": "2026-11-18T15:50:02" }
+          },
           "pp_creee_le": "2026-11-18T15:42:10", "pp_creee_par": "1540386073958682779",
-          "raison_a_valider": null, "valide_par": null,
-          "resultat_observateur": { "...": "résultat brut, format de rl_api_pp_connector" }
+          "chrono_declaration": "2026-11-18T15:42:10",
+          "raison_a_valider": "score à déclarer par les équipes", "valide_par": null
         }
       ]
     }
@@ -207,80 +203,25 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
 |---|---|
 | `statut` du tournoi | `en_cours`, `termine`, `arrete` |
 | `statut` d'un round | `en_cours`, `terminee` |
-| `statut` d'un match | `en_attente`, `en_cours`, `termine`, `a_valider` (score pas pris), `annule` |
-| `source_resultat` | `bot`, `declarations` (les deux équipes d'accord), `admin` |
+| `statut` d'un match | `en_attente`, `en_cours` (partie à créer ou délai en cours), `termine`, `a_valider` (score à déclarer par les équipes), `annule` |
+| `source_resultat` | `declarations` (les deux équipes d'accord), `admin` ; `bot` pour les tournois joués avec l'ancien observateur |
+| `chrono_declaration` | départ du délai avant la demande de score : le clic du capitaine, ou la fin de `ATTENTE_CLIC_PP_MAX` sans clic |
 | `declarations` | `{"<id équipe>": {"pour": 3, "contre": 1, "par": "<id Discord>", "le": "…"}}` |
 
-## Observation des matchs
+## Réglages du déroulement
 
-`OBSERVATEUR` dans le `.env` choisit qui prend les scores.
+Dans le `.env` (valeurs en secondes) :
 
-### `OBSERVATEUR=simulation`
+| Réglage | Par défaut | Rôle |
+|---|---|---|
+| `PAUSE_ENTRE_RONDES` | 60 | Pause entre deux rounds. |
+| `RAPPEL_CLIC_PP` | 180 | Rappel au capitaine qui n'a pas cliqué sur « Partie privée créée ». |
+| `ATTENTE_CLIC_PP_MAX` | 600 | Sans clic, le délai avant la demande de score démarre quand même (avec une alerte). |
+| `DELAI_DECLARATION` | 360 | Attente après le clic avant le MP « Déclarer le score » (6 min). |
 
-Comme en vrai, le simulateur attend le clic du capitaine sur « Partie privée créée » (ou `ATTENTE_CLIC_PP_MAX`). Ensuite, chaque match « dure » entre `SIMULATION_DUREE_MIN` et `SIMULATION_DUREE_MAX` secondes. Pour tester vite sans capitaine, mets par exemple `ATTENTE_CLIC_PP_MAX=30`. Le simulateur renvoie ensuite un score aléatoire **au format exact du connecteur** (`build_result` + `partie` + `statut`), avec les vrais pseudos en jeu des joueurs. On peut ainsi faire tourner un tournoi complet sans jouer.
+Pour tester un tournoi sans jouer : `DELAI_DECLARATION=5` et `ATTENTE_CLIC_PP_MAX=30`, puis déclare les scores toi-même avec les boutons (ou `/set_result_tournament_rl`).
 
-Deux réglages servent à tester les cas difficiles :
-- `SIMULATION_PROBA_COULEURS_INVERSEES` : les équipes se trompent de couleur ;
-- `SIMULATION_PROBA_SANS_GAGNANT` : le bot n'a pas le score, les joueurs reçoivent le bouton de déclaration et `LOG_CHANNEL` reçoit l'alerte.
-
-Pour voir un résultat simulé :
-
-Windows (PowerShell) :
-```powershell
-.venv\Scripts\python -m bot_tournament_manager.simulateur --bleu tomatoKing,cacacaca --orange crazyTomato,gogol
-```
-Linux / macOS (Bash) :
-```bash
-.venv/bin/python -m bot_tournament_manager.simulateur --bleu tomatoKing,cacacaca --orange crazyTomato,gogol
-```
-
-### `OBSERVATEUR=rl` : le vrai connecteur
-
-Le bot utilise le code de `rl_api_pp_connector` (`rl_join_bot.py`, `rl_match_watcher.py`, `positions.json`) sans le modifier.
-
-**La tournée** : tous les matchs se jouent en même temps, et le bot n'a qu'un Rocket League. Il passe donc dans les parties l'une après l'autre : zone 1 → zone 2 → … → zone 1 → … À chaque passage :
-1. il rejoint la partie privée (menus du jeu, nom et mot de passe) ;
-2. il passe spectateur ;
-3. il lit la Stats API pendant `RL_DUREE_LECTURE` secondes : joueurs, score, temps restant ;
-4. il quitte la partie et revient au menu principal.
-
-Il ne reste jamais jusqu'à la fin d'un match. C'est pour ça que les joueurs doivent rester dans la partie après la fin : au passage suivant, le bot voit que le match est fini et prend le score. Une partie entre dans la tournée quand son capitaine clique sur « Partie privée créée » (ou après `ATTENTE_CLIC_PP_MAX` sans clic) : le bot ne perd pas de temps dans les parties pas encore créées.
-
-Le bot abandonne une partie (et demande la déclaration aux joueurs) quand :
-- il n'arrive pas à la rejoindre `RL_TENTATIVES` fois de suite (pas créée, nom faux, joueurs partis…) ;
-- la partie a été relancée (nouveau match) avant qu'il prenne le score.
-
-**Arrêt d'urgence** : souris dans le coin en haut à gauche de l'écran. Le bot arrête de piloter le jeu, les matchs en cours passent en déclaration par les joueurs. Redémarre le bot pour relancer l'observation.
-
-**Après un échec de connexion**, le bot appelle `back_to_main_menu` de `rl_join_bot.py` : il rejoue le chemin enregistré avec `--calibrate-back-to-menu`, sinon il appuie sur Échap `RL_ECHAP_RETOUR_MENU` fois. Tant que ce chemin n'est pas calibré, il le signale au démarrage.
-
-#### Mise en route
-
-1. Le bot doit tourner **sur le PC où Rocket League est ouvert**, et personne ne doit utiliser ce PC pendant le tournoi (le bot pilote la souris et le clavier).
-2. Installe les modules du connecteur dans le venv du bot :
-
-   Windows (PowerShell) :
-   ```powershell
-   .venv\Scripts\python -m pip install -r ..\rl_api_pp_connector\requirements.txt
-   ```
-   Linux / macOS (Bash) :
-   ```bash
-   .venv/bin/python -m pip install -r ../rl_api_pp_connector/requirements.txt
-   ```
-3. Stats API activée et boutons calibrés : voir le README de `rl_api_pp_connector`. Calibre aussi `spectate`, `leave_match`, et le retour au menu quand la partie n'existe pas (`python rl_join_bot.py --calibrate-back-to-menu --resolution 1920x1200 --language en`).
-4. Dans le `.env` : `OBSERVATEUR=rl`, `RL_LANGUE` (langue du jeu), et `LOG_CHANNEL`. Les autres `RL_*` ont des valeurs par défaut.
-5. **Essai sans Discord ni tournoi** : Rocket League au menu principal, quelqu'un crée une partie privée, puis :
-
-   Windows (PowerShell) :
-   ```powershell
-   .venv\Scripts\python -m bot_tournament_manager.essai_rl --nom tomato_abc --mot-de-passe tomato_abc --visites 3
-   ```
-   Linux / macOS (Bash) :
-   ```bash
-   .venv/bin/python -m bot_tournament_manager.essai_rl --nom tomato_abc --mot-de-passe tomato_abc --visites 3
-   ```
-   Le bot fait 3 passages dans la partie et affiche ce qu'il a lu (événements, score, joueurs, match fini ou non), puis le résultat qu'il enregistrerait. Lance-le aussi sur une partie **déjà terminée** dont les joueurs sont restés sur l'écran de fin : il doit afficher « Match terminé : oui ».
-6. Lance le bot. Au démarrage, la console (et `LOG_CHANNEL`) signale ce qui cloche : modules manquants, calibration incomplète, écran d'une autre taille que la calibration, Rocket League fermé.
+Le bot n'utilise plus `rl_api_pp_connector` : les anciens réglages `OBSERVATEUR`, `RL_*` et `SIMULATION_*` du `.env` sont ignorés et peuvent être effacés.
 
 ## Installation
 
@@ -311,18 +252,12 @@ Windows (PowerShell) :
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-# Seulement avec OBSERVATEUR=rl : modules du connecteur (pyautogui, pillow…).
-# Sans eux, le bot s'arrête avec « Module manquant : pip install pyautogui pillow ».
-.venv\Scripts\python -m pip install -r ..\rl_api_pp_connector\requirements.txt
 .venv\Scripts\python -m bot_tournament_manager
 ```
 Linux / macOS (Bash) :
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-# Seulement avec OBSERVATEUR=rl : modules du connecteur (pyautogui, pillow…).
-# Sans eux, le bot s'arrête avec « Module manquant : pip install pyautogui pillow ».
-.venv/bin/python -m pip install -r ../rl_api_pp_connector/requirements.txt
 .venv/bin/python -m bot_tournament_manager
 ```
 

@@ -10,12 +10,12 @@ import discord
 from discord import app_commands
 
 from . import logique as L
+from . import messages as M
 from .commandes import COMMANDES, gerer_erreur
 from .config import Config, ErreurConfig, charger_config
 from .declaration import BoutonDeclaration, BoutonPartieCreee
 from .deroulement import GestionnaireTournois, MessagerieDiscord, permissions_manquantes
 from .journal import HORS_JOURNAL, JournalDiscord
-from .observation import creer_observateur
 from .stockage import Stockage
 
 log = logging.getLogger("tournament_manager")
@@ -37,12 +37,12 @@ class BotTournoi(discord.Client):
         self.messagerie = MessagerieDiscord(self, config.salon_annonces, config.log_channel)
         self.gestionnaire = GestionnaireTournois(
             Stockage(config.dossier_inscriptions, config.dossier_donnees),
-            creer_observateur(config),
             self.messagerie,
             script_pp=config.script_pp,
             pause_entre_rondes=config.pause_entre_rondes,
             rappel_clic_pp=config.rappel_clic_pp,
             attente_clic_pp_max=config.attente_clic_pp_max,
+            delai_declaration=config.delai_declaration,
             pp_forcee_zone_2=config.pp_forcee_zone_2,
         )
         self.journal = JournalDiscord(self.messagerie.journal) if config.log_channel else None
@@ -91,7 +91,8 @@ class BotTournoi(discord.Client):
             log.info("Tournoi(s) repris après redémarrage : %s", ", ".join(repris))
 
     async def on_ready(self) -> None:
-        log.info("Connecté en tant que %s (observateur : %s)", self.user, self.config.observateur)
+        log.info("Connecté en tant que %s (score demandé aux joueurs %s après le clic)", self.user,
+                 M.duree(self.config.delai_declaration))
         if self._demarrage_annonce:
             return  # on_ready revient après chaque reconnexion
         self._demarrage_annonce = True
@@ -101,11 +102,9 @@ class BotTournoi(discord.Client):
             log.info("LOG_CHANNEL est vide dans le .env : les alertes partent en MP à l'admin qui a lancé le tournoi.")
         elif self.verifier_salon("LOG_CHANNEL", self.config.log_channel, "les alertes et les problèmes du bot"):
             await self.messagerie.journal(
-                f"✅ Bot démarré (observateur : **{self.config.observateur}**). "
+                f"✅ Bot démarré (score demandé aux joueurs **{M.duree(self.config.delai_declaration)}** "
+                "après la création de la partie). "
                 f"Annonces : {f'<#{annonces}>' if annonces else 'salon de chaque tournoi'}.")
-        verifier = getattr(self.gestionnaire.observateur, "verifier", None)
-        for avertissement in (verifier() if verifier else []):
-            log.warning("[rl] %s", avertissement)
 
         if not any(e.get("statut") == L.EN_COURS for e in self.gestionnaire.stockage.lister_etats()):
             log.info("Prêt. Aucun tournoi en cours : lance-en un en tapant /start_tournament_rl "

@@ -17,24 +17,6 @@ class ErreurConfig(Exception):
 
 
 @dataclass(frozen=True)
-class ReglagesRL:
-    """Réglages du vrai connecteur (OBSERVATEUR=rl)."""
-    dossier_connecteur: Path
-    positions: Path
-    resolution: tuple[int, int] | None  # None : celle de positions.json (calibration)
-    langue: str
-    tentatives: int             # échecs de suite avant d'abandonner une partie
-    timeout_rejoindre: float    # secondes max pour entrer dans une partie
-    delai_menus: float          # pause entre deux écrans de menu
-    duree_lecture: float        # secondes passées dans une partie pour lire le score
-    pause_apres_sortie: float   # retour au menu principal après avoir quitté une partie
-    echap_retour_menu: int = 4  # appuis sur Échap pour revenir au menu après un échec
-    hote: str = "127.0.0.1"
-    port: int = 49123
-    tesseract: str = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-
-@dataclass(frozen=True)
 class Config:
     token: str
     serveur_id: int | None
@@ -43,15 +25,10 @@ class Config:
     script_pp: Path
     dossier_donnees: Path
     pause_entre_rondes: float
-    observateur: str
-    simulation_duree_min: float
-    simulation_duree_max: float
-    simulation_proba_sans_gagnant: float
-    simulation_proba_couleurs_inversees: float
     log_channel: int | None = None
-    rl: ReglagesRL | None = None
     rappel_clic_pp: float = 180       # rappel au capitaine qui n'a pas cliqué « Partie privée créée »
-    attente_clic_pp_max: float = 600  # sans clic, le bot passe quand même dans la partie
+    attente_clic_pp_max: float = 600  # sans clic, le délai avant la demande de score démarre quand même
+    delai_declaration: float = 360    # après le clic : attente avant le MP « Déclarer le score »
     pp_forcee_zone_2: tuple[str, str] | None = None  # TESTS : (nom, mot de passe) imposés à la zone 2
 
 
@@ -104,34 +81,6 @@ def _id_salon(nom: str) -> int | None:
     return int(brut) if brut else None
 
 
-def charger_reglages_rl() -> ReglagesRL:
-    """Réglages RL_* du .env (load_dotenv doit déjà avoir été appelé)."""
-    dossier = _chemin("RL_DOSSIER_CONNECTEUR", "../rl_api_pp_connector")
-    brut = os.getenv("RL_RESOLUTION", "").strip().lower().replace(" ", "")
-    resolution = None
-    if brut:
-        morceaux = brut.split("x")
-        if len(morceaux) != 2 or not all(m.isdigit() for m in morceaux):
-            raise ErreurConfig(f"RL_RESOLUTION doit ressembler à 1920x1080 (valeur actuelle : {brut!r}).")
-        resolution = (int(morceaux[0]), int(morceaux[1]))
-    langue = os.getenv("RL_LANGUE", "").strip().lower() or "en"
-    if langue not in ("en", "fr"):
-        raise ErreurConfig("RL_LANGUE doit valoir « en » ou « fr » (la langue de Rocket League).")
-    positions = os.getenv("RL_POSITIONS", "").strip()
-    return ReglagesRL(
-        dossier_connecteur=dossier,
-        positions=_chemin("RL_POSITIONS", "") if positions else dossier / "positions.json",
-        resolution=resolution,
-        langue=langue,
-        tentatives=_nombre("RL_TENTATIVES", 3, 1, entier=True),
-        timeout_rejoindre=_nombre("RL_TIMEOUT_REJOINDRE", 45.0, 5),
-        delai_menus=_nombre("RL_DELAI_MENUS", 1.5, 0),
-        duree_lecture=_nombre("RL_DUREE_LECTURE", 5.0, 1),
-        pause_apres_sortie=_nombre("RL_PAUSE_APRES_SORTIE", 8.0, 0),
-        echap_retour_menu=_nombre("RL_ECHAP_RETOUR_MENU", 4, 0, 10, entier=True),
-    )
-
-
 def _pp_forcee(nom: str) -> tuple[str, str] | None:
     """« nom:mot_de_passe » (sans « : », le mot de passe = le nom). Vide : None."""
     brut = os.getenv(nom, "").strip()
@@ -165,15 +114,6 @@ def charger_config() -> Config:
     if not script_pp.is_file():
         raise ErreurConfig(f"Script des parties privées introuvable : {script_pp} (SCRIPT_PP dans le .env).")
 
-    observateur = (os.getenv("OBSERVATEUR", "").strip().lower() or "simulation")
-    if observateur not in ("simulation", "rl"):
-        raise ErreurConfig("OBSERVATEUR doit valoir « simulation » ou « rl ».")
-
-    duree_min = _nombre("SIMULATION_DUREE_MIN", 10.0, 0)
-    duree_max = _nombre("SIMULATION_DUREE_MAX", 30.0, 0)
-    if duree_max < duree_min:
-        raise ErreurConfig("SIMULATION_DUREE_MAX doit être plus grand que SIMULATION_DUREE_MIN.")
-
     return Config(
         token=token,
         serveur_id=int(serveur_id) if serveur_id else None,
@@ -184,12 +124,7 @@ def charger_config() -> Config:
         pause_entre_rondes=_nombre("PAUSE_ENTRE_RONDES", 60.0, 0),
         rappel_clic_pp=_nombre("RAPPEL_CLIC_PP", 180.0, 0),
         attente_clic_pp_max=_nombre("ATTENTE_CLIC_PP_MAX", 600.0, 0),
+        delai_declaration=_nombre("DELAI_DECLARATION", 360.0, 0),
         pp_forcee_zone_2=_pp_forcee("PP_FORCEE_ZONE_2"),
-        observateur=observateur,
-        simulation_duree_min=duree_min,
-        simulation_duree_max=duree_max,
-        simulation_proba_sans_gagnant=_nombre("SIMULATION_PROBA_SANS_GAGNANT", 0.0, 0, 1),
-        simulation_proba_couleurs_inversees=_nombre("SIMULATION_PROBA_COULEURS_INVERSEES", 0.2, 0, 1),
         log_channel=_id_salon("LOG_CHANNEL"),
-        rl=charger_reglages_rl() if observateur == "rl" else None,
     )

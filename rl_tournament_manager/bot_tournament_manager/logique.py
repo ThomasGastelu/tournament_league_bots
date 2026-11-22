@@ -15,7 +15,6 @@ la victoire en zone haute rapporte +3.
 from __future__ import annotations
 
 import random
-from collections import Counter
 from collections.abc import Iterator
 
 # Statuts du tournoi
@@ -29,9 +28,9 @@ RONDE_TERMINEE = "terminee"
 
 # Statuts d'un match
 MATCH_EN_ATTENTE = "en_attente"   # pas encore commencé
-MATCH_EN_COURS = "en_cours"       # MP envoyés, l'observateur suit le match
+MATCH_EN_COURS = "en_cours"       # MP envoyés, le match se joue
 MATCH_TERMINE = "termine"         # vainqueur connu, points donnés
-MATCH_A_VALIDER = "a_valider"     # le bot n'a pas le score : déclaration des équipes ou admin
+MATCH_A_VALIDER = "a_valider"     # score à déclarer par les équipes (ou à fixer par un admin)
 MATCH_ANNULE = "annule"           # tournoi arrêté avant la fin du match
 MATCHS_A_JOUER = (MATCH_EN_ATTENTE, MATCH_EN_COURS)
 
@@ -43,12 +42,11 @@ POINTS_DEFAITE = 0
 INSCRITE = "inscrite"
 CONFIRME = "confirme"
 
-# Ce que renvoie l'observateur (format de rl_api_pp_connector)
-BLEU, ORANGE = 0, 1
-OBSERVATEUR_TERMINE = "terminé"
+# Raison affichée pour un match dont les équipes doivent déclarer le score
+RAISON_DECLARATION = "score à déclarer par les équipes"
 
 # Qui a donné le score d'un match terminé
-SOURCE_BOT = "bot"                    # l'observateur (simulateur ou vrai connecteur)
+SOURCE_BOT = "bot"                    # ancien observateur (tournois lancés avant sa suppression)
 SOURCE_DECLARATIONS = "declarations"  # les deux équipes ont déclaré le même score
 SOURCE_ADMIN = "admin"                # /set_result_tournament_rl
 
@@ -56,7 +54,6 @@ SOURCE_ADMIN = "admin"                # /set_result_tournament_rl
 DECLARATION_EN_ATTENTE = "en_attente"    # l'autre équipe n'a pas encore déclaré
 DECLARATION_VALIDEE = "validee"          # les deux équipes sont d'accord : match terminé
 DECLARATION_DESACCORD = "desaccord"      # les deux équipes ne déclarent pas le même score
-DECLARATION_INCOHERENTE = "incoherente"  # score plus bas que celui vu par le bot
 
 
 class ErreurTournoi(Exception):
@@ -199,15 +196,13 @@ def _nouveau_match(zone: int, equipe_a: int, equipe_b: int, partie: dict) -> dic
         "score": None,                 # {"equipe_a": 3, "equipe_b": 1}
         "vainqueur": None,             # id de l'équipe gagnante
         "points_attribues": 0,
-        "bleu": None,                  # id de l'équipe qui était vraiment en Bleu
-        "couleurs_detectees_par": None,  # "pseudos" (pseudos en jeu) ou "consigne" (A = Bleu)
         "raison_a_valider": None,
         "valide_par": None,            # id Discord de l'admin si validé à la main
         "source_resultat": None,       # "bot", "declarations" ou "admin"
         "declarations": {},            # {"<id équipe>": {"pour", "contre", "par", "le"}}
         "pp_creee_le": None,           # quand le capitaine a cliqué sur « Partie privée créée »
         "pp_creee_par": None,
-        "resultat_observateur": None,  # résultat brut renvoyé par l'observateur
+        "chrono_declaration": None,    # départ du délai avant la demande de score (clic, ou fin de l'attente)
     }
 
 
@@ -411,83 +406,20 @@ def _normaliser(pseudo: str | None) -> str:
     return (pseudo or "").strip().casefold()
 
 
-def detecter_couleur_equipe_a(joueurs_resultat: list[dict] | None, equipe_a: dict, equipe_b: dict) -> int | None:
-    """Couleur (0 = Bleu, 1 = Orange) de l'équipe A d'après les pseudos en jeu.
+def demarrer_chrono_declaration(match: dict, maintenant: str) -> str:
+    """Départ du délai avant la demande de score : le clic du capitaine s'il existe, sinon maintenant.
 
-    Chaque joueur reconnu « vote ». None si personne n'est reconnu ou s'il y a égalité.
+    Déjà noté (reprise après un redémarrage) : on garde la valeur. Renvoie le départ.
     """
-    pseudos_a = {_normaliser(j.get("pseudo_jeu")) for j in equipe_a["joueurs"]} - {""}
-    pseudos_b = {_normaliser(j.get("pseudo_jeu")) for j in equipe_b["joueurs"]} - {""}
-    votes: Counter[int] = Counter()
-    for joueur in joueurs_resultat or []:
-        couleur = joueur.get("TeamNum")
-        if couleur not in (BLEU, ORANGE):
-            continue
-        nom = _normaliser(joueur.get("Name"))
-        if nom in pseudos_a:
-            votes[couleur] += 1
-        elif nom in pseudos_b:
-            votes[1 - couleur] += 1
-    if votes[BLEU] == votes[ORANGE]:
-        return None
-    return BLEU if votes[BLEU] > votes[ORANGE] else ORANGE
+    if not match.get("chrono_declaration"):
+        match["chrono_declaration"] = match.get("pp_creee_le") or maintenant
+    return match["chrono_declaration"]
 
 
-def lire_resultat(etat: dict, match: dict, resultat: dict) -> dict:
-    """Traduit le résultat de l'observateur (Bleu/Orange) en équipes du tournoi.
-
-    Renvoie {"bleu", "couleurs_detectees_par", "score_a", "score_b", "vainqueur", "raison"}.
-    "vainqueur" vaut None (et "raison" explique pourquoi) si un admin doit valider.
-    """
-    equipe_a, equipe_b = equipe(etat, match["equipe_a"]), equipe(etat, match["equipe_b"])
-    couleur_a = detecter_couleur_equipe_a(resultat.get("players"), equipe_a, equipe_b)
-    detectees_par = "pseudos"
-    if couleur_a is None:
-        couleur_a, detectees_par = BLEU, "consigne"
-
-    scores = {t.get("team_num"): t.get("score") for t in resultat.get("teams") or []}
-    score_a, score_b = scores.get(couleur_a), scores.get(1 - couleur_a)
-    lecture = {
-        "bleu": match["equipe_a"] if couleur_a == BLEU else match["equipe_b"],
-        "couleurs_detectees_par": detectees_par,
-        "score_a": score_a,
-        "score_b": score_b,
-        "vainqueur": None,
-        "raison": None,
-    }
-
-    statut = resultat.get("statut") or OBSERVATEUR_TERMINE
-    gagnant = resultat.get("winner_team_num")
-    if statut != OBSERVATEUR_TERMINE:
-        lecture["raison"] = statut  # ex. « le bot n'a pas pu rejoindre la partie après 3 essais »
-    elif not isinstance(score_a, int) or not isinstance(score_b, int):
-        lecture["raison"] = "score illisible"
-    elif gagnant not in (BLEU, ORANGE):
-        lecture["raison"] = "pas de vainqueur"
-    else:
-        vainqueur = match["equipe_a"] if gagnant == couleur_a else match["equipe_b"]
-        if (score_a > score_b) != (vainqueur == match["equipe_a"]):
-            lecture["raison"] = "le score ne correspond pas au vainqueur annoncé"
-        else:
-            lecture["vainqueur"] = vainqueur
-    return lecture
-
-
-def appliquer_resultat(etat: dict, numero_ronde: int, match: dict, resultat: dict, maintenant: str) -> bool:
-    """Enregistre le résultat de l'observateur. True si le match est terminé, False s'il est à valider."""
-    lecture = lire_resultat(etat, match, resultat)
-    match["resultat_observateur"] = resultat
-    match["bleu"] = lecture["bleu"]
-    match["couleurs_detectees_par"] = lecture["couleurs_detectees_par"]
-    if lecture["vainqueur"] is None:
-        match["statut"] = MATCH_A_VALIDER
-        match["raison_a_valider"] = lecture["raison"]
-        if isinstance(lecture["score_a"], int) and isinstance(lecture["score_b"], int):
-            match["score"] = {"equipe_a": lecture["score_a"], "equipe_b": lecture["score_b"]}
-        return False
-    _terminer_match(etat, numero_ronde, match, lecture["vainqueur"],
-                    lecture["score_a"], lecture["score_b"], maintenant, source=SOURCE_BOT)
-    return True
+def ouvrir_declarations(match: dict) -> None:
+    """Le délai est passé : les équipes peuvent déclarer le score."""
+    match["statut"] = MATCH_A_VALIDER
+    match["raison_a_valider"] = RAISON_DECLARATION
 
 
 def valider_manuellement(etat: dict, numero_ronde: int, match: dict, gagnant_id: int,
@@ -518,7 +450,7 @@ def marquer_pp_creee(match: dict, *, par: str, maintenant: str) -> bool:
     if match["statut"] == MATCH_ANNULE:
         raise ErreurTournoi("Ce match a été annulé.")
     if match["statut"] == MATCH_A_VALIDER:
-        raise ErreurTournoi("Le bot n'a pas pu prendre le score de ce match : déclarez-le avec le bouton "
+        raise ErreurTournoi("Ce match en est à la déclaration du score : utilisez le bouton "
                             "« Déclarer le score » reçu en MP.")
     if match.get("pp_creee_le"):
         return False
@@ -527,31 +459,19 @@ def marquer_pp_creee(match: dict, *, par: str, maintenant: str) -> bool:
     return True
 
 
-def score_vu_par_le_bot(match: dict) -> dict | None:
-    """Dernier score vu par le bot pour un match à valider ({"equipe_a", "equipe_b"}), si fiable.
-
-    Seulement si les couleurs ont été reconnues grâce aux pseudos : avec la consigne
-    (équipe A = Bleu), le score pourrait être inversé.
-    """
-    score = match.get("score")
-    if match["statut"] != MATCH_A_VALIDER or not score or match.get("couleurs_detectees_par") != "pseudos":
-        return None
-    return score
-
-
 def declarer_score(etat: dict, numero_ronde: int, match: dict, equipe_id: int, buts_equipe: int,
                    buts_adversaire: int, *, par: str, maintenant: str) -> str:
-    """Un joueur déclare le score de son match (quand le bot n'a pas pu le prendre).
+    """Un joueur déclare le score de son match (après le délai, quand le bot le demande).
 
     Une nouvelle déclaration remplace la précédente de la même équipe.
-    Renvoie DECLARATION_EN_ATTENTE, _VALIDEE, _DESACCORD ou _INCOHERENTE.
+    Renvoie DECLARATION_EN_ATTENTE, _VALIDEE ou _DESACCORD.
     """
     if match["statut"] == MATCH_TERMINE:
         raise ErreurTournoi("Le résultat de ce match est déjà enregistré.")
     if match["statut"] == MATCH_ANNULE:
         raise ErreurTournoi("Ce match a été annulé.")
     if match["statut"] != MATCH_A_VALIDER:
-        raise ErreurTournoi("Le bot s'occupe encore de ce match : attends son message.")
+        raise ErreurTournoi("Le match n'est pas encore fini : le bot te demandera le score par MP.")
     if equipe_id not in (match["equipe_a"], match["equipe_b"]):
         raise ErreurTournoi("Cette équipe ne joue pas dans ce match.")
     if buts_equipe < 0 or buts_adversaire < 0:
@@ -562,10 +482,7 @@ def declarer_score(etat: dict, numero_ronde: int, match: dict, equipe_id: int, b
     declarations = match.setdefault("declarations", {})
     declarations[str(equipe_id)] = {"pour": buts_equipe, "contre": buts_adversaire, "par": par, "le": maintenant}
 
-    vu = score_vu_par_le_bot(match)
     a, b = score_declare(match, equipe_id)
-    if vu and (a < vu["equipe_a"] or b < vu["equipe_b"]):
-        return DECLARATION_INCOHERENTE
 
     autre = declarations.get(str(adversaire(match, equipe_id)))
     if autre is None:

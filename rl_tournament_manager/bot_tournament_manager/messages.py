@@ -91,9 +91,8 @@ def _embeds(titre: str, lignes: list[str], pied: str | None = None,
 
 RAPPEL = "🔁 *Rappel : le bot a redémarré, voici de nouveau les infos de ton match.*"
 CONSIGNE_SCORE = (
-    "⚠️ **Ne quittez pas et ne relancez pas la partie tant que le bot n'a pas pris le score.** "
-    "Le bot passe en spectateur dans chaque partie, à tour de rôle : à la fin du match, restez dans "
-    "la partie jusqu'à son message « vous pouvez quitter la partie »."
+    "📝 **À la fin du match, le bot vous envoie un MP pour déclarer le score** (bouton **Déclarer le score**). "
+    "Un joueur de chaque équipe déclare : le résultat est validé quand les deux équipes déclarent le même score."
 )
 
 
@@ -113,7 +112,7 @@ def mp_creation(etat: dict, numero: int, match: dict, reprise: bool = False) -> 
         lignes.append(f"✅ Tu as indiqué que la partie est créée ({_heure(match['pp_creee_le'])}).")
     else:
         lignes.append("Une fois la partie créée, clique sur **✅ Partie privée créée** : le bot prévient les "
-                      "autres joueurs et commence à passer dans ta partie.")
+                      "autres joueurs.")
     lignes += [
         "",
         _consigne_couleurs(etat, match),
@@ -160,25 +159,14 @@ def mp_rappel_creation(etat: dict, numero: int, match: dict, duree_restante: str
         "partie privée ?",
         *_bloc_partie(match),
         "Quand elle est créée, clique sur **✅ Partie privée créée**. "
-        f"Sans clic, le bot passera quand même dans ta partie dans {duree_restante}.",
-    ])
-
-
-def mp_partie_introuvable(etat: dict, numero: int, match: dict) -> str:
-    """Au capitaine, quand le bot ne trouve pas la partie qu'il a dite créée."""
-    return "\n".join([
-        f"⚠️ **Le bot ne trouve pas ta partie privée** — {_titre(etat)}, round {numero}, "
-        f"{zone_titre(etat, match['zone'])}.",
-        "Vérifie qu'elle existe avec **exactement** ce nom et ce mot de passe :",
-        *_bloc_partie(match),
-        "Le bot réessaie à son prochain passage.",
+        f"Sans clic, le bot considérera que le match a commencé dans {duree_restante}.",
     ])
 
 
 def reponse_pp_creee(nouveau: bool, match: dict) -> str:
     if nouveau:
-        return ("✅ Merci ! Les autres joueurs sont prévenus, et le bot va passer dans ta partie. "
-                "Ne la quittez pas avant son message « vous pouvez quitter la partie ».")
+        return ("✅ Merci ! Les autres joueurs sont prévenus. Bon match : le bot vous demandera le score "
+                "en MP à la fin.")
     return f"✅ Déjà noté : partie créée à {_heure(match['pp_creee_le'])}."
 
 
@@ -246,12 +234,11 @@ def _source(match: dict) -> str:
 
 
 def mp_declaration(etat: dict, numero: int, match: dict, equipe_id: int) -> str:
-    """Le bot n'a pas pu prendre le score : les joueurs le déclarent (bouton sous le message)."""
+    """Délai passé : les joueurs déclarent le score (bouton sous le message)."""
     return "\n".join([
         f"📝 **Déclare le score de ton match** — {_titre(etat)}, round {numero}/{etat['nombre_de_rondes']}, "
         f"{zone_titre(etat, match['zone'])}",
         f"**{_nom(etat, equipe_id)}** vs **{_nom(etat, L.adversaire(match, equipe_id))}**",
-        f"Le bot n'a pas pu prendre le score ({match['raison_a_valider']}).",
         "",
         "Quand le match est fini, clique sur **Déclarer le score** : un joueur de chaque équipe déclare, et "
         "le résultat est validé quand les deux équipes déclarent le même score. Si ce n'est pas le cas, "
@@ -261,7 +248,7 @@ def mp_declaration(etat: dict, numero: int, match: dict, equipe_id: int) -> str:
 
 def secours_declaration(etat: dict, numero: int, match: dict) -> str:
     """Posté dans le salon des annonces (avec le bouton) quand le MP de déclaration est impossible."""
-    return (f"je n'arrive pas à t'envoyer de MP. Le bot n'a pas pu prendre le score de ton match du tournoi "
+    return (f"je n'arrive pas à t'envoyer de MP. Il faut déclarer le score de ton match du tournoi "
             f"**{_titre(etat)}** (round {numero}, {zone_titre(etat, match['zone'])}) : déclare-le avec le bouton "
             "ci-dessous quand le match est fini.")
 
@@ -279,8 +266,6 @@ REPONSES_DECLARATION = {
     L.DECLARATION_VALIDEE: "✅ Les deux équipes ont déclaré le même score : résultat enregistré.",
     L.DECLARATION_DESACCORD: "⚠️ L'autre équipe a déclaré un score différent : un admin va trancher. "
                              "Si tu t'es trompé, reclique sur le bouton pour corriger.",
-    L.DECLARATION_INCOHERENTE: "⚠️ Ce score est plus bas que le dernier score vu par le bot : un admin va vérifier. "
-                               "Si tu t'es trompé, reclique sur le bouton pour corriger.",
 }
 
 
@@ -576,12 +561,10 @@ def texte_erreur(etat: dict) -> str:
 # Alertes (LOG_CHANNEL)
 # --------------------------------------------------------------------------- #
 
-ALERTE_SCORE_NON_PRIS = "le bot n'a pas pu prendre le score"
 ALERTE_DESACCORD = "les deux équipes n'ont pas déclaré le même score"
-ALERTE_INCOHERENTE = "score déclaré plus bas que le dernier score vu par le bot"
 ALERTE_PAS_DE_CLIC = "le capitaine n'a pas cliqué sur « Partie privée créée » après {duree}"
-CONCLUSION_PAS_DE_CLIC = ("Le bot passe quand même dans la partie. Si elle n'existe pas, contacte le capitaine ; "
-                          "si le bot ne la trouve pas, les joueurs pourront déclarer le score.")
+CONCLUSION_PAS_DE_CLIC = ("Le délai avant la demande de score démarre quand même : les joueurs pourront déclarer "
+                          "le score. Si la partie n'existe pas, contacte le capitaine.")
 
 
 def _ligne_equipe_alerte(etat: dict, match: dict, equipe_id: int) -> str:
@@ -602,7 +585,8 @@ def embeds_alerte_match(etat: dict, numero: int, match: dict, probleme: str,
     capitaine = L.equipe(etat, match["equipe_a"])["capitaine_id"]
     a, b = match["equipe_a"], match["equipe_b"]
     lignes = [
-        f"**Problème :** {probleme}" + (f" ({match['raison_a_valider']})" if match.get("raison_a_valider") else ""),
+        f"**Problème :** {probleme}" + (f" ({match['raison_a_valider']})" if match.get("raison_a_valider")
+                                         and match["raison_a_valider"] != L.RAISON_DECLARATION else ""),
         "",
         "**Pour rejoindre la partie à la main**",
         *_bloc_partie(match),
@@ -610,10 +594,6 @@ def embeds_alerte_match(etat: dict, numero: int, match: dict, probleme: str,
         _ligne_equipe_alerte(etat, match, a),
         _ligne_equipe_alerte(etat, match, b),
     ]
-    if match.get("score") and match["statut"] != L.MATCH_TERMINE:
-        fiable = match.get("couleurs_detectees_par") == "pseudos"
-        lignes += ["", f"**Dernier score vu par le bot :** {_score(etat, match)}"
-                   + ("" if fiable else " *(couleurs pas reconnues : peut-être inversé)*")]
     declarations = match.get("declarations") or {}
     if declarations:
         lignes += ["", "**Déclarations des équipes**"]
@@ -659,7 +639,10 @@ def _ligne_match_status(etat: dict, match: dict) -> str:
                                       else "⏳ partie pas encore créée")
     elif statut == L.MATCH_A_VALIDER:
         nb = len(match.get("declarations") or {})
-        etat_match = f"{duel} — ⚠️ à valider ({match['raison_a_valider']}) · déclarations : {nb}/2"
+        if match.get("raison_a_valider") == L.RAISON_DECLARATION:
+            etat_match = f"{duel} — 📝 score à déclarer · déclarations : {nb}/2"
+        else:
+            etat_match = f"{duel} — ⚠️ à valider ({match['raison_a_valider']}) · déclarations : {nb}/2"
     elif statut == L.MATCH_ANNULE:
         etat_match = f"{duel} — 🚫 annulé"
     else:

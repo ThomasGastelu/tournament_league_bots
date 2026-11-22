@@ -1,4 +1,4 @@
-"""Déroulement d'un tournoi : rounds, matchs, observation, messages.
+"""Déroulement d'un tournoi : rounds, matchs, déclarations des scores, messages.
 
 Une tâche asyncio par tournoi en cours. L'état est relu et réécrit dans le
 JSON à chaque étape : si le bot redémarre, reprendre() relance les tournois
@@ -9,14 +9,14 @@ Pour chaque round :
   2. parties privées générées par generer_pp_names.py ;
   3. tous les matchs se jouent en même temps : MP au capitaine de l'équipe A
      (créer la partie, bouton « Partie privée créée ») et aux autres joueurs (la
-     rejoindre), avec la consigne de rester dans la partie tant que le bot n'a pas
-     pris le score ;
+     rejoindre) ;
   4. au clic du capitaine (ou, sans clic, après ATTENTE_CLIC_PP_MAX, avec une alerte),
-     les autres joueurs sont prévenus et l'observateur prend le score du match (le vrai
-     connecteur passe dans les parties l'une après l'autre) ;
-  5. score pris : points dans le JSON, MP « vous pouvez quitter la partie » ;
-     score pas pris : alerte dans LOG_CHANNEL et MP aux joueurs pour qu'ils le
-     déclarent (bouton) ; un admin peut toujours trancher avec /set_result_tournament_rl ;
+     les autres joueurs sont prévenus et le délai DELAI_DECLARATION (6 min par défaut)
+     démarre. Son départ est noté dans le JSON : après un redémarrage, le bot attend
+     seulement le temps qui reste ;
+  5. délai passé : MP aux joueurs pour qu'ils déclarent le score (bouton). Le résultat
+     est validé quand les deux équipes déclarent le même score ; un admin peut toujours
+     trancher avec /set_result_tournament_rl ;
   6. quand toutes les zones ont un score : pause, puis round suivant.
 """
 
@@ -35,7 +35,6 @@ import discord
 from . import logique as L
 from . import messages as M
 from .journal import HORS_JOURNAL
-from .observation import Observateur, PartieAObserver
 from .pp import generer_parties
 from .stockage import Stockage
 
@@ -91,24 +90,24 @@ class GestionnaireTournois:
     def __init__(
         self,
         stockage: Stockage,
-        observateur: Observateur,
         messagerie: Messagerie,
         *,
         script_pp: Path,
         pause_entre_rondes: float = 60,
         rappel_clic_pp: float = 180,
         attente_clic_pp_max: float = 600,
+        delai_declaration: float = 360,
         pp_forcee_zone_2: tuple[str, str] | None = None,
         generer_pp: Callable[[Path, int, Path], list[dict]] = generer_parties,
         rng: random.Random | None = None,
     ) -> None:
         self.stockage = stockage
-        self.observateur = observateur
         self.messagerie = messagerie
         self.script_pp = Path(script_pp)
         self.pause_entre_rondes = pause_entre_rondes
         self.rappel_clic_pp = rappel_clic_pp
         self.attente_clic_pp_max = attente_clic_pp_max
+        self.delai_declaration = delai_declaration
         self.pp_forcee_zone_2 = pp_forcee_zone_2
         self.generer_pp = generer_pp
         self.rng = rng or random.Random()
@@ -116,8 +115,6 @@ class GestionnaireTournois:
         self._taches_matchs: dict[tuple[str, int, int], asyncio.Task] = {}
         self._validations: dict[str, asyncio.Event] = {}
         self._pp_creees: dict[tuple[str, int, int], asyncio.Event] = {}  # clic « Partie privée créée »
-        if hasattr(observateur, "sur_partie_introuvable"):
-            observateur.sur_partie_introuvable = self._partie_introuvable
 
     # ------------------------------------------------------------------- #
     # Commandes
@@ -259,7 +256,7 @@ class GestionnaireTournois:
                                    par=par, maintenant=maintenant())
             self.stockage.sauvegarder_etat(etat)
 
-        # Si l'observateur s'occupait encore de ce match, il n'a plus rien à faire.
+        # Si le bot attendait encore la fin de ce match, il n'a plus rien à faire.
         tache = self._taches_matchs.get((tournoi_id, ronde["numero"], zone))
         if tache is not None and tache is not asyncio.current_task():
             tache.cancel()
@@ -286,7 +283,7 @@ class GestionnaireTournois:
 
         evenement = self._pp_creees.get((tournoi_id, numero, zone))
         if evenement is not None:
-            evenement.set()  # le bot peut commencer à passer dans la partie
+            evenement.set()  # le délai avant la demande de score démarre
         if nouveau:
             log.info("Tournoi %s, round %s, zone %s : partie privée créée (clic de %s)", tournoi_id, numero, zone, par)
             for equipe_id in (match["equipe_a"], match["equipe_b"]):
@@ -346,9 +343,6 @@ class GestionnaireTournois:
                     etat, equipe_id, nouvel_id, modif["ancien_joueur"]["pseudo"])):
                 notes.append(f"⚠️ Impossible d'envoyer un MP à <@{nouvel_id}> : il doit ouvrir ses MP pour ce serveur.")
             await self.messagerie.mp(etat, ancien_id, M.mp_remplace(etat, equipe_id, pseudos[nouvel_id]))
-            if not L.trouver_joueur(etat, nouvel_id)[1].get("pseudo_jeu"):
-                notes.append("⚠️ Le remplaçant n'a pas de pseudo en jeu : donne-le avec `pseudo_jeu` pour que le bot "
-                             "reconnaisse sa couleur.")
 
         if capitaine:
             ancien_cap, nouveau_cap = capitaine
@@ -377,8 +371,6 @@ class GestionnaireTournois:
                                          declaration=(numero, zone, equipe_id))
                 notes.append(f"📨 <@{remplacement[1]}> a reçu le bouton pour déclarer le score de son match "
                              f"(round {numero}, zone {zone}).")
-        if "pseudo_jeu" in changements and not remplacement:
-            notes.append("🎮 Le bot utilise ce pseudo en jeu dès le prochain score qu'il prend.")
         return notes
 
     async def declarer_score(self, tournoi_id: str, numero: int, zone: int, equipe_id: int, buts_equipe: int,
@@ -409,9 +401,6 @@ class GestionnaireTournois:
                 for joueur in L.equipe(etat, e_id)["joueurs"]:
                     await self.messagerie.mp(etat, joueur["id"], M.mp_desaccord(etat, numero, match, e_id),
                                              declaration=(numero, zone, e_id))
-        elif issue == L.DECLARATION_INCOHERENTE:
-            await self.messagerie.alerte(etat, texte=M.texte_alerte(etat),
-                                         embeds=M.embeds_alerte_match(etat, numero, match, M.ALERTE_INCOHERENTE))
         return M.REPONSES_DECLARATION[issue]
 
     async def attendre(self, tournoi_id: str) -> None:
@@ -546,22 +535,21 @@ class GestionnaireTournois:
         finally:
             if self._pp_creees.get(cle) is evenement:
                 del self._pp_creees[cle]
-        # Les joueurs ont pu être modifiés pendant l'attente (/edit_player_tournament_rl) : on relit leurs pseudos.
-        etat = self.stockage.charger_etat(tournoi_id) or etat
-        equipe_a, equipe_b = L.equipe(etat, match["equipe_a"]), L.equipe(etat, match["equipe_b"])
-        partie = PartieAObserver(
-            tournoi_id=tournoi_id, ronde=numero, zone=zone,
-            nom=match["pp"]["nom"], mot_de_passe=match["pp"]["mot_de_passe"],
-            pseudos_bleu=tuple(j["pseudo_jeu"] for j in equipe_a["joueurs"] if j.get("pseudo_jeu")),
-            pseudos_orange=tuple(j["pseudo_jeu"] for j in equipe_b["joueurs"] if j.get("pseudo_jeu")),
-        )
-        try:
-            resultat = await self.observateur.observer(partie)
-        except asyncio.CancelledError:
-            raise
-        except Exception as erreur:
-            log.exception("Tournoi %s, round %s, zone %s : erreur de l'observateur", tournoi_id, numero, zone)
-            resultat = {"statut": f"erreur de l'observateur : {erreur}", "winner_team_num": None}
+        # Départ du délai : le clic du capitaine, ou maintenant (attente du clic dépassée). Noté dans le JSON
+        # pour qu'un redémarrage n'attende que le temps qui reste.
+        async with self.stockage.verrou(tournoi_id):
+            etat = self.stockage.charger_etat(tournoi_id)
+            if etat is None or etat["statut"] != L.EN_COURS:
+                return
+            match = L.trouver_match(L.trouver_ronde(etat, numero), zone)
+            if match["statut"] != L.MATCH_EN_COURS:
+                return  # validé à la main entre-temps
+            deja_note = bool(match.get("chrono_declaration"))
+            depart = L.demarrer_chrono_declaration(match, maintenant())
+            if not deja_note:
+                self.stockage.sauvegarder_etat(etat)
+
+        await asyncio.sleep(_secondes_restantes(depart, self.delai_declaration))
 
         async with self.stockage.verrou(tournoi_id):
             etat = self.stockage.charger_etat(tournoi_id)
@@ -570,15 +558,11 @@ class GestionnaireTournois:
             match = L.trouver_match(L.trouver_ronde(etat, numero), zone)
             if match["statut"] != L.MATCH_EN_COURS:
                 return  # validé à la main entre-temps
-            termine = L.appliquer_resultat(etat, numero, match, resultat, maintenant())
+            L.ouvrir_declarations(match)
             self.stockage.sauvegarder_etat(etat)
-
-        if termine:
-            await self._annoncer_fin_match(etat, numero, match)
-        else:
-            log.info("Tournoi %s, round %s, zone %s : score pas pris (%s), déclaration demandée aux équipes",
-                     tournoi_id, numero, zone, match["raison_a_valider"])
-            await self._demander_declarations(etat, numero, match)
+        log.info("Tournoi %s, round %s, zone %s : délai passé, déclaration du score demandée aux équipes",
+                 tournoi_id, numero, zone)
+        await self._demander_declarations(etat, numero, match)
 
     # ------------------------------------------------------------------- #
     # Messages
@@ -600,7 +584,8 @@ class GestionnaireTournois:
         """Attend le clic du capitaine sur « Partie privée créée ».
 
         Sans clic : rappel au capitaine après RAPPEL_CLIC_PP, puis, après ATTENTE_CLIC_PP_MAX,
-        alerte dans LOG_CHANNEL et le bot passe quand même dans la partie.
+        alerte dans LOG_CHANNEL et le délai avant la demande de score démarre quand même.
+        Rien à attendre si le délai a déjà démarré (reprise après un redémarrage).
         """
         def match_en_attente() -> tuple[dict, dict] | None:
             """(état, match) si le tournoi continue et que la partie n'est pas encore dite créée."""
@@ -608,7 +593,7 @@ class GestionnaireTournois:
             if etat is None or etat["statut"] != L.EN_COURS:
                 return None
             match = L.trouver_match(L.trouver_ronde(etat, numero), zone)
-            return None if match.get("pp_creee_le") else (etat, match)
+            return None if match.get("pp_creee_le") or match.get("chrono_declaration") else (etat, match)
 
         if match_en_attente() is None:
             return
@@ -629,29 +614,14 @@ class GestionnaireTournois:
         if trouve is None:
             return
         etat, match = trouve
-        log.info("Tournoi %s, round %s, zone %s : pas de clic « Partie privée créée », le bot passe quand même",
+        log.info("Tournoi %s, round %s, zone %s : pas de clic « Partie privée créée », le délai démarre quand même",
                  tournoi_id, numero, zone)
         probleme = M.ALERTE_PAS_DE_CLIC.format(duree=M.duree(self.attente_clic_pp_max))
         await self.messagerie.alerte(etat, texte=M.texte_alerte(etat), embeds=M.embeds_alerte_match(
             etat, numero, match, probleme, M.CONCLUSION_PAS_DE_CLIC))
 
-    async def _partie_introuvable(self, partie: PartieAObserver) -> None:
-        """Appelé par le vrai observateur au premier échec : on redonne au capitaine le nom et le mot de passe."""
-        etat = self.stockage.charger_etat(partie.tournoi_id)
-        if etat is None or etat["statut"] != L.EN_COURS:
-            return
-        try:
-            match = L.trouver_match(L.trouver_ronde(etat, partie.ronde), partie.zone)
-        except L.ErreurTournoi:
-            return
-        if match["statut"] == L.MATCH_EN_COURS:
-            capitaine_id = L.equipe(etat, match["equipe_a"])["capitaine_id"]
-            await self.messagerie.mp(etat, capitaine_id, M.mp_partie_introuvable(etat, partie.ronde, match))
-
     async def _demander_declarations(self, etat: dict, numero: int, match: dict) -> None:
-        """Le bot n'a pas le score : alerte aux admins, et bouton de déclaration aux joueurs."""
-        await self.messagerie.alerte(etat, texte=M.texte_alerte(etat),
-                                     embeds=M.embeds_alerte_match(etat, numero, match, M.ALERTE_SCORE_NON_PRIS))
+        """Délai passé : bouton de déclaration du score à tous les joueurs du match."""
         for equipe_id in (match["equipe_a"], match["equipe_b"]):
             texte = M.mp_declaration(etat, numero, match, equipe_id)
             for joueur in L.equipe(etat, equipe_id)["joueurs"]:
@@ -690,6 +660,15 @@ class GestionnaireTournois:
         for tache in taches:
             tache.cancel()
         await asyncio.gather(*taches, return_exceptions=True)
+
+
+def _secondes_restantes(depart: str, delai: float) -> float:
+    """Secondes qui restent avant la fin du délai commencé à `depart` (horodatage ISO), au moins 0."""
+    try:
+        ecoule = (datetime.now() - datetime.fromisoformat(depart)).total_seconds()
+    except ValueError:
+        ecoule = 0.0
+    return max(0.0, delai - max(0.0, ecoule))
 
 
 async def _attendre(evenement: asyncio.Event, delai: float) -> bool:

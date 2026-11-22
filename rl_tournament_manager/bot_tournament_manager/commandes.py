@@ -384,7 +384,7 @@ async def set_result_tournament_rl(interaction: discord.Interaction, id_tournoi:
 @app_commands.describe(
     id_tournoi="ID du tournoi (en cours)",
     joueur="Joueur à modifier",
-    pseudo_jeu="Son pseudo dans Rocket League (sert à reconnaître la couleur de son équipe)",
+    pseudo_jeu="Son pseudo dans Rocket League",
     pseudo="Son pseudo affiché par le bot",
     nom_equipe="Nouveau nom de son équipe",
     devient_capitaine="True : il devient capitaine de son équipe (c'est lui qui crée les parties privées)",
