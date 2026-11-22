@@ -44,14 +44,26 @@ Copie `.env.example` en `.env` et remplis :
 - `DISCORD_TOKEN` : le token du bot.
 - `GUILD_ID` : l'ID de ton serveur (Paramètres Discord > Avancés > Mode développeur, puis clic droit sur le serveur > **Copier l'identifiant du serveur**). Avec cet ID, la commande apparaît immédiatement.
 
-### 3. Lancer (Windows, PowerShell)
+### 3. Lancer
+Windows (PowerShell) :
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m bot_mp
 ```
+Linux / macOS (Bash) :
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m bot_mp
+```
 
 ### Tests
+Windows (PowerShell) :
 ```powershell
 .venv\Scripts\python -m pytest
+```
+Linux / macOS (Bash) :
+```bash
+.venv/bin/python -m pytest
 ```

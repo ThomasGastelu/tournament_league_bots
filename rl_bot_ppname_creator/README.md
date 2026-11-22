@@ -51,15 +51,27 @@ Copie `.env.example` en `.env` et remplis :
 - `GUILD_ID` : l'ID de ton serveur (Paramètres Discord > Avancés > Mode développeur, puis clic droit sur le serveur > **Copier l'identifiant du serveur**). Avec cet ID, les commandes apparaissent immédiatement.
 - `DELAI_CONFIRMATION_MINUTES` : minutes laissées aux coéquipiers pour confirmer (30 par défaut, de 1 à 10080). Redémarre le bot après un changement. Le nouveau délai ne s'applique qu'aux inscriptions faites après le redémarrage : les équipes déjà inscrites gardent leur heure limite.
 
-### 3. Lancer (Windows, PowerShell)
+### 3. Lancer
+Windows (PowerShell) :
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m bot_inscription_manager
 ```
+Linux / macOS (Bash) :
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m bot_inscription_manager
+```
 Le bot doit rester lancé pour que les boutons fonctionnent. S'il redémarre, les anciens boutons remarchent.
 
 ### Tests
+Windows (PowerShell) :
 ```powershell
 .venv\Scripts\python -m pytest
+```
+Linux / macOS (Bash) :
+```bash
+.venv/bin/python -m pytest
 ```

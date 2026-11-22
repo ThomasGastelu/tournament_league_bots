@@ -59,14 +59,26 @@ Copie `.env.example` en `.env` et remplis :
 - `CATEGORIE_TICKETS` (facultatif) : l'ID de la catégorie où créer les tickets. Vide : le bot utilise la catégorie **Support**, et la crée (cachée à `@everyone`) si elle n'existe pas. Si tu donnes ta propre catégorie, vérifie que le bot la voit.
 - `LOG_CHANNEL` (facultatif) : l'ID d'un salon réservé au staff, pour l'historique des ouvertures / fermetures et les copies des conversations.
 
-### 3. Lancer (Windows, PowerShell)
+### 3. Lancer
+Windows (PowerShell) :
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m bot_ticket
 ```
+Linux / macOS (Bash) :
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m bot_ticket
+```
 
 ### Tests
+Windows (PowerShell) :
 ```powershell
 .venv\Scripts\python -m pytest
+```
+Linux / macOS (Bash) :
+```bash
+.venv/bin/python -m pytest
 ```

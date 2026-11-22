@@ -27,8 +27,13 @@ Bot qui **rejoint automatiquement une partie privée Rocket League** (nom + mot 
 
 ## Installation
 
+Windows (PowerShell) :
+```powershell
+python -m pip install -r requirements.txt
+```
+Linux / macOS (Bash) :
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 `pytesseract` est facultatif : il ne sert que pour les boutons non calibrés et nécessite [Tesseract-OCR](https://github.com/UB-Mannheim/tesseract/wiki). Avec une calibration complète, il n'est pas nécessaire.
@@ -53,16 +58,26 @@ WebPort=49124
 
 Vérifier que ça marche (jeu lancé, **dans un match**) :
 
+Windows (PowerShell) :
 ```powershell
 Test-NetConnection localhost -Port 49123   # TcpTestSucceeded : True
+```
+Linux / macOS (Bash) :
+```bash
+nc -zv localhost 49123   # « succeeded » / « open » = OK
 ```
 
 ## 2. Calibrer les boutons (une seule fois)
 
 Le bot doit connaître la position des boutons à l'écran.
 
-```bash
+Windows (PowerShell) :
+```powershell
 python rl_join_bot.py --calibrate --resolution 1920x1200 --language en
+```
+Linux / macOS (Bash) :
+```bash
+python3 rl_join_bot.py --calibrate --resolution 1920x1200 --language en
 ```
 
 Pour chaque étape : **Entrée** dans la console → 5 s pour poser la souris sur l'élément dans le jeu (sans cliquer) → une fois « enregistré », clique toi-même pour passer à l'écran suivant. Tape `skip` pour sauter une étape facultative.
@@ -71,8 +86,13 @@ Pour chaque étape : **Entrée** dans la console → 5 s pour poser la souris su
 
 Pour recalibrer seulement certaines étapes (les autres sont conservées) :
 
-```bash
+Windows (PowerShell) :
+```powershell
 python rl_join_bot.py --calibrate --resolution 1920x1200 --language en --steps leave_match,confirm_yes
+```
+Linux / macOS (Bash) :
+```bash
+python3 rl_join_bot.py --calibrate --resolution 1920x1200 --language en --steps leave_match,confirm_yes
 ```
 
 Les positions sont stockées dans `positions.json`.
@@ -81,8 +101,13 @@ Les positions sont stockées dans `positions.json`.
 
 Quand la partie privée n'existe pas, le jeu affiche une erreur. Pour que le bot sache revenir au menu principal, enregistre le chemin une fois :
 
-```bash
+Windows (PowerShell) :
+```powershell
 python rl_join_bot.py --calibrate-back-to-menu --resolution 1920x1200 --language en
+```
+Linux / macOS (Bash) :
+```bash
+python3 rl_join_bot.py --calibrate-back-to-menu --resolution 1920x1200 --language en
 ```
 
 1. Rocket League au **menu principal** : 5 s plus tard, le bot essaie de rejoindre une partie qui n'existe pas, et l'erreur s'affiche.
@@ -97,8 +122,13 @@ Les actions sont ajoutées à `positions.json` (étape `back_to_menu`) sans touc
 
 Rocket League au **menu principal**, puis :
 
-```bash
+Windows (PowerShell) :
+```powershell
 python rl_join_bot.py --name 111 --password 111 --resolution 1920x1200 --language en
+```
+Linux / macOS (Bash) :
+```bash
+python3 rl_join_bot.py --name 111 --password 111 --resolution 1920x1200 --language en
 ```
 
 Le bot démarre 5 s plus tard (laisse le jeu au premier plan).
@@ -152,8 +182,13 @@ Une liste, un objet par match (voir `score.example.json`) :
 
 Si tu rejoins la partie toi-même :
 
-```bash
+Windows (PowerShell) :
+```powershell
 python rl_match_watcher.py --output resultats.jsonl
+```
+Linux / macOS (Bash) :
+```bash
+python3 rl_match_watcher.py --output resultats.jsonl
 ```
 
 ## Dépannage

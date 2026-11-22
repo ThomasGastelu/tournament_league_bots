@@ -225,8 +225,13 @@ Deux réglages servent à tester les cas difficiles :
 
 Pour voir un résultat simulé :
 
+Windows (PowerShell) :
 ```powershell
 .venv\Scripts\python -m bot_tournament_manager.simulateur --bleu tomatoKing,cacacaca --orange crazyTomato,gogol
+```
+Linux / macOS (Bash) :
+```bash
+.venv/bin/python -m bot_tournament_manager.simulateur --bleu tomatoKing,cacacaca --orange crazyTomato,gogol
 ```
 
 ### `OBSERVATEUR=rl` : le vrai connecteur
@@ -253,14 +258,26 @@ Le bot abandonne une partie (et demande la déclaration aux joueurs) quand :
 
 1. Le bot doit tourner **sur le PC où Rocket League est ouvert**, et personne ne doit utiliser ce PC pendant le tournoi (le bot pilote la souris et le clavier).
 2. Installe les modules du connecteur dans le venv du bot :
+
+   Windows (PowerShell) :
    ```powershell
    .venv\Scripts\python -m pip install -r ..\rl_api_pp_connector\requirements.txt
+   ```
+   Linux / macOS (Bash) :
+   ```bash
+   .venv/bin/python -m pip install -r ../rl_api_pp_connector/requirements.txt
    ```
 3. Stats API activée et boutons calibrés : voir le README de `rl_api_pp_connector`. Calibre aussi `spectate`, `leave_match`, et le retour au menu quand la partie n'existe pas (`python rl_join_bot.py --calibrate-back-to-menu --resolution 1920x1200 --language en`).
 4. Dans le `.env` : `OBSERVATEUR=rl`, `RL_LANGUE` (langue du jeu), et `LOG_CHANNEL`. Les autres `RL_*` ont des valeurs par défaut.
 5. **Essai sans Discord ni tournoi** : Rocket League au menu principal, quelqu'un crée une partie privée, puis :
+
+   Windows (PowerShell) :
    ```powershell
    .venv\Scripts\python -m bot_tournament_manager.essai_rl --nom tomato_abc --mot-de-passe tomato_abc --visites 3
+   ```
+   Linux / macOS (Bash) :
+   ```bash
+   .venv/bin/python -m bot_tournament_manager.essai_rl --nom tomato_abc --mot-de-passe tomato_abc --visites 3
    ```
    Le bot fait 3 passages dans la partie et affiche ce qu'il a lu (événements, score, joueurs, match fini ou non), puis le résultat qu'il enregistrerait. Lance-le aussi sur une partie **déjà terminée** dont les joueurs sont restés sur l'écran de fin : il doit afficher « Match terminé : oui ».
 6. Lance le bot. Au démarrage, la console (et `LOG_CHANNEL`) signale ce qui cloche : modules manquants, calibration incomplète, écran d'une autre taille que la calibration, Rocket League fermé.
@@ -289,7 +306,8 @@ Pour copier un ID : Paramètres Discord > Avancés > **Mode développeur**, puis
 
 Les autres réglages ont des valeurs par défaut prêtes à l'emploi.
 
-### 3. Lancer (Windows, PowerShell)
+### 3. Lancer
+Windows (PowerShell) :
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
@@ -298,8 +316,22 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -r ..\rl_api_pp_connector\requirements.txt
 .venv\Scripts\python -m bot_tournament_manager
 ```
+Linux / macOS (Bash) :
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+# Seulement avec OBSERVATEUR=rl : modules du connecteur (pyautogui, pillow…).
+# Sans eux, le bot s'arrête avec « Module manquant : pip install pyautogui pillow ».
+.venv/bin/python -m pip install -r ../rl_api_pp_connector/requirements.txt
+.venv/bin/python -m bot_tournament_manager
+```
 
 ### Tests
+Windows (PowerShell) :
 ```powershell
 .venv\Scripts\python -m pytest
+```
+Linux / macOS (Bash) :
+```bash
+.venv/bin/python -m pytest
 ```
