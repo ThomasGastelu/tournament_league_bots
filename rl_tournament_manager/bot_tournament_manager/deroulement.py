@@ -89,8 +89,9 @@ class Messagerie(Protocol):
         """Message d'information dans LOG_CHANNEL, sans mentionner personne."""
         ...
 
-    async def resultats(self, etat: dict, embeds: list[discord.Embed]) -> None:
-        """Récap d'un round terminé dans le salon des résultats (SALON_RESULTATS)."""
+    async def resultats(self, etat: dict, texte: str | None = None,
+                        embeds: list[discord.Embed] | None = None) -> None:
+        """Salon des résultats (SALON_RESULTATS) : lancement du tournoi, récap de chaque round terminé."""
         ...
 
 
@@ -152,6 +153,8 @@ class GestionnaireTournois:
             self.stockage.sauvegarder_etat(etat)
         # Avant le premier round : le salon existe quand les joueurs reçoivent leurs MP.
         await self._creer_salon_discussion(etat)
+        # Séparateur + lancement dans le salon des résultats, avant le récap du premier round.
+        await self.messagerie.resultats(etat, texte=M.texte_lancement_tournoi(etat))
         self._lancer(tournoi_id)
         return etat
 
@@ -527,7 +530,7 @@ class GestionnaireTournois:
                     self.stockage.sauvegarder_etat(etat)
             if termine:
                 log.info("Tournoi %s : round %s terminé", tournoi_id, numero)
-                await self.messagerie.resultats(etat, M.embeds_resultats_ronde(etat, ronde))
+                await self.messagerie.resultats(etat, embeds=M.embeds_resultats_ronde(etat, ronde))
                 return
             await validation.wait()
 
@@ -773,11 +776,12 @@ class MessagerieDiscord:
             log.warning("Alerte impossible à envoyer (ni LOG_CHANNEL, ni MP à l'admin) : %s", erreur,
                         extra=HORS_JOURNAL)
 
-    async def resultats(self, etat: dict, embeds: list[discord.Embed]) -> None:
+    async def resultats(self, etat: dict, texte: str | None = None,
+                        embeds: list[discord.Embed] | None = None) -> None:
         if self.salon_resultats:
-            await self._poster(self.salon_resultats, None, embeds, quoi="SALON_RESULTATS")
+            await self._poster(self.salon_resultats, texte, embeds, quoi="SALON_RESULTATS")
         else:
-            await self.annonce(etat, embeds=embeds)
+            await self.annonce(etat, texte=texte, embeds=embeds)
 
     async def journal(self, texte: str) -> None:
         """Message dans LOG_CHANNEL (problèmes du bot, démarrage), sans mentionner personne."""

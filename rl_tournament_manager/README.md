@@ -109,8 +109,11 @@ Le fichier d'inscription (`../rl_bot_ppname_creator/data/tournois/<id>.json`) n'
 - l'annonce de l'arrêt du tournoi ;
 - le classement final.
 
-**Salon des résultats** (`SALON_RESULTATS`, par exemple `#resultat-match` ; sinon le salon des annonces) — public. À la fin de chaque round, le bot y poste le récap :
+**Salon des résultats** (`SALON_RESULTATS`, par exemple `#resultat-match` ; sinon le salon des annonces) — public. Au `/start_tournament_rl`, le bot y poste un séparateur et le lancement du tournoi ; à la fin de chaque round, le récap :
 ```
+━━━━━━━━━━━━━━━━━━━━━━
+🚀 Lancement du tournoi test
+
 🎯 Round 3
 Zone 1 ⭐ : ✅ caca 1 - 2 tomatoTown (déclaré par les équipes)
 

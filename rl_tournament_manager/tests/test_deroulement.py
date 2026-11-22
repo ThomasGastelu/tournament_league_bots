@@ -83,7 +83,8 @@ def test_tournoi_complet_8_equipes(tmp_path):
     assert all(m["source_resultat"] == L.SOURCE_DECLARATIONS for r in etat["rondes"] for m in r["matchs"])
     assert all(m["chrono_declaration"] == m["pp_creee_le"] for r in etat["rondes"] for m in r["matchs"])
 
-    # Récap de chaque round (scores et classement) dans le salon des résultats.
+    # Salon des résultats : séparateur et lancement, puis récap de chaque round (scores et classement).
+    assert messagerie.textes_resultats == ["━━━━━━━━━━━━━━━━━━━━━━\n🚀 **Lancement du tournoi Tournoi test**"]
     assert len(messagerie.resultats_rondes) == 3
     for numero, embeds in enumerate(messagerie.resultats_rondes, start=1):
         texte = " ".join((e.title or "") + " " + (e.description or "") for e in embeds)

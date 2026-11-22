@@ -650,6 +650,14 @@ def _ligne_match_status(etat: dict, match: dict) -> str:
     return f"**{zone_titre(etat, match['zone'])}** : {etat_match}"
 
 
+SEPARATEUR = "━━━━━━━━━━━━━━━━━━━━━━"
+
+
+def texte_lancement_tournoi(etat: dict) -> str:
+    """Salon des résultats, au /start_tournament_rl : sépare les tournois les uns des autres."""
+    return f"{SEPARATEUR}\n🚀 **Lancement du tournoi {escape_markdown(etat['titre'])}**"
+
+
 def embeds_resultats_ronde(etat: dict, ronde: dict) -> list[discord.Embed]:
     """Récap d'un round terminé (salon des résultats) : score de chaque zone, puis classement."""
     lignes = [f"**🎯 Round {ronde['numero']}**"]
