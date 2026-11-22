@@ -215,6 +215,9 @@ def test_parcours_complet(monde):
     # Hugo inscrit Nina : tournoi plein -> liste d'attente.
     inter = inscrire(client, j["Hugo"], [j["Nina"]], "Turbo", tid)
     assert "liste d'attente" in inter.dernier_texte() and "position 1/4" in inter.dernier_texte()
+    lignes = inter.dernier_texte().splitlines()
+    assert lignes[0].startswith("⏳ Le tournoi est plein") and lignes[1].startswith("🎮 Ton pseudo Rocket League")
+    assert "Tu t'es inscrit" not in inter.dernier_texte()
 
     # Nina valide, puis Leo inscrit un joueur aux MP fermés -> message dans le salon.
     confirmer(client, j["Nina"], tid, 2)

@@ -247,13 +247,22 @@ class FicheInscription(ui.Modal):
                     log.warning("Impossible de prévenir %s : %s", membre.id, erreur)
 
         # 4. Message au capitaine (MP + réponse privée dans le salon).
-        texte = (
-            f"✅ Tu t'es inscrit au tournoi **{tournoi['titre']}** avec l'équipe **{equipe['nom']}** "
-            f"(team_id `#{equipe['id']}`).\n"
-            f"🎮 Ton pseudo Rocket League : {pseudo_jeu_affiche(L.joueur_dans_equipe(equipe, str(capitaine.id)))}\n"
-            f"{texte_placement(tournoi, equipe)}\n"
-            f"{texte_attente_validation(equipe)}"
-        )
+        ligne_pseudo = f"🎮 Ton pseudo Rocket League : {pseudo_jeu_affiche(L.joueur_dans_equipe(equipe, str(capitaine.id)))}"
+        if equipe["statut"] == L.INSCRITE:
+            texte = (
+                f"✅ Tu t'es inscrit au tournoi **{tournoi['titre']}** avec l'équipe **{equipe['nom']}** "
+                f"(team_id `#{equipe['id']}`).\n"
+                f"{ligne_pseudo}\n"
+                f"{texte_placement(tournoi, equipe)}\n"
+                f"{texte_attente_validation(equipe)}"
+            )
+        else:
+            # Liste d'attente : la position d'abord, sans la ligne « ✅ Tu t'es inscrit… ».
+            texte = (
+                f"{texte_placement(tournoi, equipe)}\n"
+                f"{ligne_pseudo}\n"
+                f"{texte_attente_validation(equipe)}"
+            )
         await envoyer_mp(client, capitaine.id, texte, view=vue_capitaine(tournoi["id"], equipe["id"]))
         await repondre(interaction, texte, view=vue_capitaine(tournoi["id"], equipe["id"]))
 
