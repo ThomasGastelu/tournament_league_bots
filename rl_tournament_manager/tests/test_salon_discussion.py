@@ -15,6 +15,7 @@ from bot_tournament_manager.commandes import probleme_salon_discussion
 from bot_tournament_manager.deroulement import GestionnaireTournois, MessagerieDiscord
 from bot_tournament_manager.stockage import Stockage
 
+from .outils import demarrer
 from .outils import ADMIN, SALON, SERVEUR, FausseMessagerie, ecrire_inscription, faux_pp, tournoi_inscription
 
 TID = "1571169059024928818"
@@ -244,7 +245,7 @@ def jouer(tmp_path: Path, messagerie: FausseMessagerie, *, init: bool = True) ->
         g, stockage = gestionnaire_test(tmp_path, messagerie)
         if init:
             await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
-        etat = await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        etat = await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
         return etat, stockage.charger_etat(TID)
 
@@ -309,7 +310,7 @@ def test_init_echec_explique(tmp_path, caplog, echec):
 def test_init_refusee_si_le_tournoi_est_lance(tmp_path):
     async def scenario():
         g, _ = gestionnaire_test(tmp_path, FausseMessagerie(clic_auto=False))
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         with pytest.raises(L.ErreurTournoi, match="déjà lancé"):
             await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
         await g.fermer()

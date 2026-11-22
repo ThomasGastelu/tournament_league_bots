@@ -13,6 +13,7 @@ from bot_tournament_manager import logique as L
 from bot_tournament_manager.deroulement import GestionnaireTournois
 from bot_tournament_manager.stockage import Stockage
 
+from .outils import demarrer
 from .outils import (ADMIN, SERVEUR, FausseMessagerie, attendre_que, ecrire_inscription, faux_pp, score_auto,
                      tournoi_inscription)
 
@@ -35,7 +36,7 @@ def creer(tmp_path: Path, nb_equipes: int, *, delai: float = 0, declaration_auto
 def test_tournoi_complet_8_equipes(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 8)
-        await g.demarrer(TID, 3, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 3, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
         return stockage.charger_etat(TID), messagerie
 
@@ -105,7 +106,7 @@ def test_tournoi_complet_8_equipes(tmp_path):
 def test_tous_les_matchs_se_jouent_en_meme_temps(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 8, delai=1.5)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         max_simultanes = 0
         while g.est_actif(TID):
             etat = stockage.charger_etat(TID)
@@ -133,7 +134,7 @@ def attendre_a_valider(stockage):
 def test_apres_le_delai_bouton_de_declaration_sans_alerte(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 4, declaration_auto=False)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_a_valider(stockage)
         assert g.est_actif(TID)  # le round attend
         etat = stockage.charger_etat(TID)
@@ -162,7 +163,7 @@ def test_apres_le_delai_bouton_de_declaration_sans_alerte(tmp_path):
 def test_le_bot_attend_le_delai_avant_de_demander_le_score(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2, delai=1.5, declaration_auto=False)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
                            and bool(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["pp_creee_le"]))
         await asyncio.sleep(0.1)
@@ -188,7 +189,7 @@ def _joueur(etat, equipe_id):
 def test_les_deux_equipes_declarent_le_meme_score(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2, declaration_auto=False)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_a_valider(stockage)
         etat = stockage.charger_etat(TID)
         m = etat["rondes"][0]["matchs"][0]
@@ -218,7 +219,7 @@ def test_les_deux_equipes_declarent_le_meme_score(tmp_path):
 def test_declarations_differentes_alerte_puis_admin(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2, declaration_auto=False)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_a_valider(stockage)
         etat = stockage.charger_etat(TID)
         m = etat["rondes"][0]["matchs"][0]
@@ -244,7 +245,7 @@ def test_declarations_differentes_alerte_puis_admin(tmp_path):
 def test_admin_peut_forcer_un_match_bloque_en_cours(tmp_path):
     async def scenario():
         g, stockage, _ = creer(tmp_path, 2, delai=60)  # le bot attend 60 s avant de demander le score
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: stockage.charger_etat(TID)["rondes"]
                            and stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["statut"] == L.MATCH_EN_COURS)
         await g.valider_resultat(TID, 1, 1, 1, 0, serveur_id=SERVEUR, par=ADMIN)
@@ -259,7 +260,7 @@ def test_admin_peut_forcer_un_match_bloque_en_cours(tmp_path):
 def test_arret_du_tournoi(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 4, delai=60)
-        await g.demarrer(TID, 5, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 5, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"]))
         await g.arreter(TID, serveur_id=SERVEUR, par=ADMIN)
         assert not g.est_actif(TID)
@@ -276,7 +277,7 @@ def test_arret_du_tournoi(tmp_path):
 def test_reprise_apres_redemarrage(tmp_path):
     async def premier_lancement():
         g, stockage, _ = creer(tmp_path, 4, delai=60)
-        await g.demarrer(TID, 2, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 2, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: any(m["statut"] == L.MATCH_EN_COURS
                                        for r in stockage.charger_etat(TID)["rondes"] for m in r["matchs"]))
         await g.fermer()  # le bot s'arrête en plein match
@@ -297,12 +298,12 @@ def test_refus_de_lancement(tmp_path):
     async def scenario():
         g, _, _ = creer(tmp_path, 4, delai=60)
         with pytest.raises(L.ErreurTournoi, match="Aucun tournoi"):
-            await g.demarrer("123", 2, serveur_id=SERVEUR, lance_par=ADMIN)
+            await demarrer(g, "123", 2, serveur_id=SERVEUR, lance_par=ADMIN)
         with pytest.raises(L.ErreurTournoi, match="Aucun tournoi"):
-            await g.demarrer(TID, 2, serveur_id="autre_serveur", lance_par=ADMIN)
-        await g.demarrer(TID, 2, serveur_id=SERVEUR, lance_par=ADMIN)
+            await demarrer(g, TID, 2, serveur_id="autre_serveur", lance_par=ADMIN)
+        await demarrer(g, TID, 2, serveur_id=SERVEUR, lance_par=ADMIN)
         with pytest.raises(L.ErreurTournoi, match="déjà en cours"):
-            await g.demarrer(TID, 2, serveur_id=SERVEUR, lance_par=ADMIN)
+            await demarrer(g, TID, 2, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.fermer()
 
     asyncio.run(scenario())
@@ -311,9 +312,9 @@ def test_refus_de_lancement(tmp_path):
 def test_relancer_un_tournoi_termine_archive_l_ancien(tmp_path):
     async def scenario():
         g, stockage, _ = creer(tmp_path, 2)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await g.attendre(TID)
 
     asyncio.run(scenario())
@@ -329,7 +330,7 @@ def test_relancer_un_tournoi_termine_archive_l_ancien(tmp_path):
 def test_le_bot_attend_le_clic_du_capitaine(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2, clic_auto=False)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(messagerie.boutons_pp))
         await asyncio.sleep(0.1)
         etat = stockage.charger_etat(TID)
@@ -360,7 +361,7 @@ def test_le_bot_attend_le_clic_du_capitaine(tmp_path):
 def test_sans_clic_rappel_puis_le_delai_demarre_quand_meme(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2, clic_auto=False, rappel=0.05, attente_max=0.15)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await asyncio.wait_for(g.attendre(TID), 5)
         return stockage.charger_etat(TID), messagerie
 
@@ -380,7 +381,7 @@ def test_sans_clic_rappel_puis_le_delai_demarre_quand_meme(tmp_path):
 def test_redemarrage_apres_le_clic(tmp_path):
     async def premier_lancement():
         g, stockage, _ = creer(tmp_path, 2, delai=60)  # le capitaine clique, puis le bot attend 60 s
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
                            and bool(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["pp_creee_le"]))
         await g.fermer()
@@ -411,7 +412,7 @@ def _redemarrer_avec_chrono(tmp_path, il_y_a: float, delai: float):
     Renvoie (secondes écoulées avant la demande de score, nombre de boutons de déclaration)."""
     async def premier_lancement():
         g, stockage, _ = creer(tmp_path, 2, delai=600)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
                            and bool(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["chrono_declaration"]))
         await g.fermer()

@@ -6,22 +6,23 @@ import pytest
 
 from bot_tournament_manager import logique as L
 
+from .outils import demarrer
 from .outils import ADMIN, SERVEUR, attendre_que
 from .test_deroulement import TID, creer
 
 
 def lancer(tmp_path, *, clic: bool):
     """Tournoi à 2 équipes (1 zone), en cours ; avec `clic`, la partie est déjà créée."""
-    async def demarrer():
+    async def preparer():
         g, stockage, messagerie = creer(tmp_path, 2, delai=60, clic_auto=clic)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         if clic:
             await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
                                and bool(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["pp_creee_le"]))
         else:
             await attendre_que(lambda: bool(messagerie.boutons_pp))
         return g, stockage, messagerie
-    return demarrer
+    return preparer
 
 
 def test_partie_deja_creee_tous_les_joueurs_recoivent_la_nouvelle(tmp_path):

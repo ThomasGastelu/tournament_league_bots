@@ -33,3 +33,8 @@ def test_noms_des_commandes():
     assert [p.name for p in reset.parameters] == ["id_tournoi", "garder_salon"]
     assert reset.get_parameter("garder_salon").default is False
     assert reset.default_permissions.manage_guild  # admins seulement
+    init = COMMANDES[6]
+    assert [p.name for p in init.parameters] == ["id_tournoi", "delai_confirmation"]
+    assert [p.required for p in init.parameters] == [True, True]
+    assert (init.get_parameter("delai_confirmation").min_value,
+            init.get_parameter("delai_confirmation").max_value) == (1, 1440)

@@ -14,6 +14,7 @@ from bot_tournament_manager import messages as M
 from bot_tournament_manager.deroulement import GestionnaireTournois, MessagerieDiscord
 from bot_tournament_manager.stockage import Stockage
 
+from .outils import demarrer
 from .outils import ADMIN, SERVEUR, FausseMessagerie, attendre_que, ecrire_inscription, faux_pp, tournoi_inscription
 
 TID = "1571169059024928818"
@@ -130,7 +131,7 @@ async def lancer(g, stockage, messagerie) -> tuple[dict, dict]:
     """Crée le salon (/start_tournament_init), lance le tournoi et attend les MP du round 1.
     Renvoie (état, match de la zone 1)."""
     await g.initialiser(TID, serveur_id=SERVEUR, par=ADMIN)
-    await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+    await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
     await attendre_que(lambda: messagerie.boutons_pp)
     etat = stockage.charger_etat(TID)
     return etat, etat["rondes"][0]["matchs"][0]

@@ -198,11 +198,15 @@ def probleme_salon_discussion(interaction: discord.Interaction, tournoi_id: str)
 
 @app_commands.command(name="start_tournament_init",
                       description="Crée le salon du tournoi (joueurs + admins) et prévient les joueurs avant le lancement")
-@app_commands.describe(id_tournoi="ID du tournoi (fichier d'inscription)")
+@app_commands.describe(
+    id_tournoi="ID du tournoi (fichier d'inscription)",
+    delai_confirmation="Minutes laissées aux équipes pour valider leur participation (sinon la liste d'attente prend leur place)",
+)
 @app_commands.autocomplete(id_tournoi=autocomplete_inscription)
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_guild=True)
-async def start_tournament_init(interaction: discord.Interaction, id_tournoi: str) -> None:
+async def start_tournament_init(interaction: discord.Interaction, id_tournoi: str,
+                                delai_confirmation: app_commands.Range[int, 1, 1440]) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     probleme = probleme_salon_discussion(interaction, id_tournoi)
     if probleme:
@@ -211,7 +215,8 @@ async def start_tournament_init(interaction: discord.Interaction, id_tournoi: st
         return await repondre(interaction, probleme)
     try:
         init = await gestionnaire(interaction).initialiser(
-            id_tournoi, serveur_id=str(interaction.guild_id), par=str(interaction.user.id))
+            id_tournoi, serveur_id=str(interaction.guild_id), par=str(interaction.user.id),
+            delai_confirmation=delai_confirmation)
     except L.ErreurTournoi as erreur:
         log.info("/start_tournament_init %s refusé (demandé par %s) : %s", id_tournoi, interaction.user, erreur)
         return await repondre(interaction, f"❌ {erreur}")
@@ -220,7 +225,10 @@ async def start_tournament_init(interaction: discord.Interaction, id_tournoi: st
         f"✅ Salon du tournoi **{discord.utils.escape_markdown(init['titre'])}** créé : "
         f"<#{init['salon_discussion_id']}> ({len(init['equipes'])} équipes + les admins). Les joueurs y sont "
         f"prévenus que le tournoi va bientôt commencer.\n"
-        f"Pour lancer le tournoi : `/start_tournament_rl id_tournoi:{init['tournoi_id']} nombre_de_matchs:…`",
+        f"📝 Les joueurs ont reçu en MP le bouton « Valider ma participation » : ils ont "
+        f"**{delai_confirmation} min** (jusqu'à {M.heure_discord(init['confirmation']['fin'])}). "
+        f"{len(init['confirmation']['attente'])} équipe(s) en liste d'attente prévenue(s) en MP.\n"
+        f"Après le délai, lance le tournoi : `/start_tournament_rl id_tournoi:{init['tournoi_id']} nombre_de_matchs:…`",
     )
 
 
@@ -253,8 +261,7 @@ async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
     if etat.get("salon_discussion_id"):
         discussion = f"💬 Salon de discussion (joueurs + admins) : <#{etat['salon_discussion_id']}>\n"
     else:
-        discussion = (f"ℹ️ Pas de salon de discussion : crée-le avant le lancement avec "
-                      f"`/start_tournament_init id_tournoi:{etat['tournoi_id']}`.\n")
+        discussion = ""
     await repondre(
         interaction,
         f"✅ Tournoi **{discord.utils.escape_markdown(etat['titre'])}** lancé : {len(etat['equipes'])} équipes, "

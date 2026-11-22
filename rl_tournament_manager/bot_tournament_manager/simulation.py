@@ -72,6 +72,11 @@ class Simulation:
         capitaine = L.equipe(etat, match["equipe_a"])["capitaine_id"]
         self._lancer(self._cliquer(etat["tournoi_id"], numero, match["zone"], capitaine))
 
+    def confirmations_demandees(self, init: dict) -> None:
+        """/start_tournament_init : le capitaine de chaque équipe va « valider » sa participation."""
+        for equipe in init["equipes"].values():
+            self._lancer(self._valider(init["tournoi_id"], equipe["id"], equipe["capitaine_id"]))
+
     def declarations_demandees(self, etat: dict, numero: int, match: dict) -> None:
         """MP de déclaration envoyés : les deux équipes vont déclarer un score."""
         score_a = score_au_hasard(self.rng)
@@ -106,6 +111,15 @@ class Simulation:
             log.info("[simulation] Tournoi %s, round %s, zone %s : clic ignoré (%s)", tournoi_id, numero, zone, erreur)
         except Exception:
             log.exception("[simulation] Tournoi %s, round %s, zone %s : erreur au clic", tournoi_id, numero, zone)
+
+    async def _valider(self, tournoi_id: str, equipe_id: int, capitaine: str) -> None:
+        await asyncio.sleep(self.delai_clic)
+        try:
+            await self.gestionnaire.valider_participation(tournoi_id, equipe_id, par=capitaine)
+        except L.ErreurTournoi as erreur:
+            log.info("[simulation] Tournoi %s, équipe %s : validation ignorée (%s)", tournoi_id, equipe_id, erreur)
+        except Exception:
+            log.exception("[simulation] Tournoi %s, équipe %s : erreur à la validation", tournoi_id, equipe_id)
 
     async def _declarer(self, tournoi_id: str, numero: int, zone: int, equipe_id: int, pour: int, contre: int,
                         par: str) -> None:

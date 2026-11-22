@@ -13,7 +13,7 @@ from . import logique as L
 from . import messages as M
 from .commandes import COMMANDES, gerer_erreur
 from .config import Config, ErreurConfig, charger_config
-from .declaration import BoutonDeclaration, BoutonPartieCreee
+from .declaration import BoutonConfirmation, BoutonDeclaration, BoutonPartieCreee
 from .deroulement import GestionnaireTournois, MessagerieDiscord, permissions_manquantes
 from .journal import HORS_JOURNAL, JournalDiscord
 from .simulation import Simulation
@@ -73,8 +73,9 @@ class BotTournoi(discord.Client):
     async def setup_hook(self) -> None:
         if self.journal:
             self.journal.demarrer(asyncio.get_running_loop())
-        # Boutons des MP (« Partie privée créée », « Déclarer le score ») : ils marchent encore après un redémarrage.
-        self.add_dynamic_items(BoutonPartieCreee, BoutonDeclaration)
+        # Boutons des MP (« Partie privée créée », « Déclarer le score », « Valider ma participation ») :
+        # ils marchent encore après un redémarrage.
+        self.add_dynamic_items(BoutonPartieCreee, BoutonDeclaration, BoutonConfirmation)
 
         if self.config.serveur_id:
             # Sur un seul serveur : les commandes apparaissent tout de suite.

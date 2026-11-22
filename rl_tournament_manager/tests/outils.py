@@ -81,6 +81,7 @@ class FausseMessagerie:
         self.mps: list[tuple[str, str]] = []
         self.boutons: list[tuple[str, tuple[int, int, int]]] = []  # déclaration : (joueur, (round, zone, équipe))
         self.boutons_pp: list[tuple[str, tuple[int, int]]] = []    # partie créée : (joueur, (round, zone))
+        self.boutons_confirmation: list[tuple[str, int]] = []      # valider sa participation : (joueur, équipe)
         self.annonces: list[tuple[str | None, list | None]] = []
         self.alertes: list[tuple[str | None, list | None]] = []
         self.clic_auto = clic_auto
@@ -92,8 +93,11 @@ class FausseMessagerie:
     async def pret(self) -> None:
         pass
 
-    async def mp(self, etat, joueur_id, texte, secours=None, declaration=None, pp_creee=None) -> bool:
+    async def mp(self, etat, joueur_id, texte, secours=None, declaration=None, pp_creee=None,
+                 confirmation=None) -> bool:
         self.mps.append((joueur_id, texte))
+        if confirmation is not None:
+            self.boutons_confirmation.append((joueur_id, confirmation))
         if declaration:
             self.boutons.append((joueur_id, declaration))
             cle = (etat["tournoi_id"], *declaration)
@@ -174,6 +178,17 @@ class FausseMessagerie:
 
     def mps_de(self, joueur_id: str) -> list[str]:
         return [t for j, t in self.mps if j == joueur_id]
+
+
+async def demarrer(g, tournoi_id: str, nombre_de_rondes: int, **kwargs) -> dict:
+    """/start_tournament_rl dans les tests : /start_tournament_init est obligatoire, on écrit d'abord un
+    init sans salon ni validation des participations s'il n'y en a pas (comme un init avec délai 0)."""
+    from bot_tournament_manager import logique as L
+
+    tournoi = g.stockage.charger_inscription(tournoi_id)
+    if tournoi is not None and g.stockage.charger_init(tournoi_id) is None:
+        g.stockage.sauvegarder_init(L.etat_init(tournoi, [], par=ADMIN, maintenant="2026-11-14T15:00:00"))
+    return await g.demarrer(tournoi_id, nombre_de_rondes, **kwargs)
 
 
 async def attendre_que(condition, delai: float = 5.0) -> None:

@@ -6,8 +6,8 @@ Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), 
 
 | Commande | Qui | Ce qu'elle fait |
 |---|---|---|
-| `/start_tournament_init id_tournoi` | admins | À faire avant le lancement : crée le salon de discussion du tournoi (voir « Salons ») et y poste « @here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀 ». |
-| `/start_tournament_rl id_tournoi nombre_de_matchs [golden_round]` | admins | Lance le tournoi (il reprend le salon créé par `/start_tournament_init` ; il n'en crée plus). `nombre_de_matchs` = nombre de matchs joués par chaque équipe (= nombre de rounds). `golden_round` (facultatif, 1 par défaut) = round à partir duquel la victoire en zone haute rapporte +3 (voir « Points »). |
+| `/start_tournament_init id_tournoi delai_confirmation` | admins | **Obligatoire** avant le lancement : crée le salon de discussion du tournoi (voir « Salons »), y poste « @here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀 », et demande aux équipes de **valider leur participation** dans les `delai_confirmation` minutes (1 à 1440), sinon la liste d'attente prend leur place (voir « Validation des participations »). |
+| `/start_tournament_rl id_tournoi nombre_de_matchs [golden_round]` | admins | Lance le tournoi avec les équipes qui ont validé leur participation (et celles montées de la liste d'attente), dans le salon créé par `/start_tournament_init`. **Refusé** (message d'erreur, rien n'est lancé) si `/start_tournament_init` n'a pas été fait, ou si le délai de validation n'est pas fini. `nombre_de_matchs` = nombre de matchs joués par chaque équipe (= nombre de rounds). `golden_round` (facultatif, 1 par défaut) = round à partir duquel la victoire en zone haute rapporte +3 (voir « Points »). |
 | `/start_tournament_rl_status id_tournoi` | tout le monde | Round en cours, état de chaque zone et classement (réponse visible par toi seul). |
 | `/stop_tournament_rl id_tournoi` | admins | Arrête le tournoi (après confirmation) : matchs en cours annulés, joueurs prévenus en MP. |
 | `/start_tournament_modify_pp id_tournoi zone nom [mot_de_passe]` | admins | Change le nom et le mot de passe de la partie privée d'une zone du round en cours (`mot_de_passe` vide = le même que le nom). Partie déjà créée : tous les joueurs du match reçoivent la nouvelle en MP. Sinon : le capitaine reçoit la nouvelle partie à créer, et les autres la recevront à son clic. Noté dans `LOG_CHANNEL`. |
@@ -21,6 +21,20 @@ Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), 
 Les joueurs n'ont pas de commande à taper, ils ont des boutons dans leurs MP :
 - **✅ Partie privée créée** : pour le capitaine qui crée la partie ;
 - **📝 Déclarer le score** : envoyé 6 minutes après la création de la partie (`DELAI_DECLARATION`).
+
+## Validation des participations
+
+`/start_tournament_init id_tournoi delai_confirmation` envoie, en plus du salon :
+- à **chaque joueur des équipes inscrites** : « tu as `delai_confirmation` minutes (jusqu'à HH:MM) pour valider la participation de ton équipe, sinon elle perdra sa place », avec le bouton **✅ Valider ma participation**. **Un seul joueur de l'équipe suffit** ; ses coéquipiers sont prévenus en MP. L'heure s'affiche à l'heure de chaque joueur ;
+- à **chaque joueur de la liste d'attente** (ordre du bot d'inscription, seulement les équipes dont tous les joueurs ont confirmé) : sa position, « reste ici : si une équipe ne valide pas sa participation dans les `delai_confirmation` minutes, tu avanceras dans la liste d'attente ». L'équipe **1re** de la liste lit en plus « si une équipe ne valide pas, tu participeras au tournoi ».
+
+À la fin du délai (ou dès que toutes les équipes ont validé) :
+- les équipes qui n'ont pas validé **perdent leur place** (MP) et leur accès au salon de discussion ;
+- les premières équipes de la liste d'attente **prennent ces places**, dans l'ordre : MP « 🎉 ton équipe participe au tournoi » et accès au salon (il faut au bot **Gérer les rôles**, sinon `LOG_CHANNEL` dit qui ajouter à la main) ;
+- les équipes qui restent en liste d'attente reçoivent leur nouvelle position ;
+- le bilan est posté dans le salon de discussion et dans `LOG_CHANNEL`.
+
+Un bouton cliqué après le délai répond « le délai est passé ». Le délai survit à un redémarrage du bot (heure de fin gardée dans `data/salons/<id>.json`). Si le nombre d'équipes final est impair (pas assez d'équipes en liste d'attente), `/start_tournament_rl` le refuse : remets le tournoi à zéro (`/reset_tournament_rl`) et refais `/start_tournament_init`. Le fichier d'inscription n'est jamais modifié.
 
 ## Déroulement
 
@@ -129,7 +143,7 @@ Zone 1 ⭐ : ✅ caca 1 - 2 tomatoTown
 - visible seulement par les **joueurs des équipes participantes**, les **admins** (rôles avec « Gérer le serveur » ou « Administrateur »), l'admin qui a lancé le tournoi et le bot. Ils peuvent y écrire et y envoyer des fichiers (captures de score) ;
 - le bot y poste un message de bienvenue qui mentionne chaque joueur, puis « @here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀 » ; les mots de passe des parties restent en MP. Pour que le @here notifie, il faut au bot **Mentionner @everyone, @here et tous les rôles** (sinon la console le signale) ;
 - un joueur qui a quitté le serveur n'y a pas accès : le bot le signale dans `LOG_CHANNEL` ;
-- son ID est gardé dans `data/salons/<id>.json`, puis dans le JSON du tournoi (`salon_discussion_id`) au `/start_tournament_rl`. Sans `/start_tournament_init` avant, le tournoi se joue sans salon de discussion. `/start_tournament_init` refuse de créer un deuxième salon tant que le premier existe ;
+- son ID est gardé dans `data/salons/<id>.json`, puis dans le JSON du tournoi (`salon_discussion_id`) au `/start_tournament_rl`. Sans `/start_tournament_init` avant, `/start_tournament_rl` refuse de lancer le tournoi. `/start_tournament_init` refuse de créer un deuxième salon tant que le premier existe ;
 - à la fin ou à l'arrêt du tournoi, le salon reste : supprime-le à la main quand tu veux. Un tournoi relancé garde le même salon. `/reset_tournament_rl` le supprime (sauf avec `garder_salon: True`).
 
 Il faut au bot **Gérer les salons** et **Joindre des fichiers** (en plus des permissions d'annonce) sur le serveur, et que la catégorie ne les lui retire pas. Sinon `/start_tournament_init` refuse de créer le salon et dit quoi cocher, et où (rôle du bot sur le serveur, ou catégorie).
@@ -155,6 +169,7 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
 | `data/tournois/<id>.json` | **État et résultats** : équipes (points, victoires, buts, historique), rounds (`rondes`), matchs, scores, déclarations. |
 | `data/pp/<id>_ronde_<n>.json` | Parties privées de chaque round (tomato_A, tomato_B…). |
 | `data/archives/` | Ancien fichier de résultats quand on relance un tournoi déjà terminé ou arrêté. |
+| `data/salons/<id>.json` | `/start_tournament_init` : salon de discussion, équipes retenues (`equipes`) et validation des participations (`confirmation` : `delai_minutes`, `fin`, `terminee`, `validees`, `attente`, `perdues`, `promues`). |
 
 `/reset_tournament_rl` efface les trois fichiers d'un tournoi (`data/tournois/`, `data/pp/`, `data/archives/`), jamais son fichier d'inscription.
 
@@ -240,6 +255,7 @@ Pour tester un tournoi sans jouer : `DELAI_DECLARATION=5` et `ATTENTE_CLIC_PP_MA
 ### Mode simulation (`SIMULATION=1`)
 
 Le tournoi se joue tout seul, sans joueurs (code : `simulation.py`) :
+0. après `/start_tournament_init`, le capitaine de chaque équipe « clique » sur **Valider ma participation** après `SIMULATION_DELAI_CLIC` secondes ;
 1. le capitaine « clique » sur **Partie privée créée** après `SIMULATION_DELAI_CLIC` secondes ;
 2. le bot attend `DELAI_DECLARATION` comme en vrai (mets-le à 5 pour aller vite), puis envoie les MP de déclaration ;
 3. chaque équipe déclare un score tiré au hasard (jamais d'égalité) après `SIMULATION_DELAI_DECLARATION` secondes. Les deux équipes déclarent le même score : le match est validé tout seul.

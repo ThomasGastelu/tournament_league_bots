@@ -500,6 +500,92 @@ def textes_bienvenue_salon(etat: dict) -> list[str]:
 TEXTE_INIT = "@here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀"
 
 
+# --------------------------------------------------------------------------- #
+# Validation des participations (/start_tournament_init delai_confirmation)
+# --------------------------------------------------------------------------- #
+
+def heure_discord(horodatage: str) -> str:
+    """« 15:42 (dans 30 minutes) », affiché par Discord à l'heure de chaque joueur."""
+    from datetime import datetime
+    try:
+        secondes = int(datetime.fromisoformat(horodatage).timestamp())
+    except ValueError:
+        return _heure(horodatage)
+    return f"<t:{secondes}:t> (<t:{secondes}:R>)"
+
+
+def _minutes(n: int) -> str:
+    return f"{n} minute{'s' if n > 1 else ''}"
+
+
+def mp_confirmation(init: dict, equipe_id: int) -> str:
+    """Aux joueurs des équipes inscrites : bouton « Valider ma participation »."""
+    confirmation = init["confirmation"]
+    return (f"📝 **{_titre(init)}** : tu as **{_minutes(confirmation['delai_minutes'])}** "
+            f"(jusqu'à {heure_discord(confirmation['fin'])}) pour valider la participation de ton équipe "
+            f"**{_nom(init, equipe_id)}**, sinon elle perdra sa place au profit de la liste d'attente.\n"
+            "Clique sur le bouton ci-dessous : un seul joueur de l'équipe suffit.")
+
+
+def mp_liste_attente(init: dict, equipe_id: int, position: int) -> str:
+    """Aux joueurs de la liste d'attente, au moment de /start_tournament_init."""
+    confirmation = init["confirmation"]
+    equipe = next(e for e in confirmation["attente"] if e["id"] == equipe_id)
+    lignes = [
+        f"⏳ **{_titre(init)}** : ton équipe **{escape_markdown(equipe['nom'])}** est **{_rang(position)}** "
+        "sur la liste d'attente. Reste ici !",
+        f"Si une équipe ne valide pas sa participation dans les {_minutes(confirmation['delai_minutes'])} "
+        f"(jusqu'à {heure_discord(confirmation['fin'])}), tu avanceras dans la liste d'attente.",
+    ]
+    if position == 1:
+        lignes.append("🌟 Tu es premier : si une équipe ne valide pas, **tu participeras au tournoi**.")
+    return "\n".join(lignes)
+
+
+def mp_validation_equipe(init: dict, equipe_id: int, par: str) -> str:
+    """Aux coéquipiers de celui qui a cliqué."""
+    return f"✅ <@{par}> a validé la participation de **{_nom(init, equipe_id)}** à **{_titre(init)}**."
+
+
+def reponse_validation(init: dict, equipe_id: int, nouvelle: bool) -> str:
+    if not nouvelle:
+        return f"✅ La participation de **{_nom(init, equipe_id)}** est déjà validée."
+    return (f"✅ Participation de **{_nom(init, equipe_id)}** validée ! Rendez-vous au lancement du tournoi"
+            + (f" : <#{init['salon_discussion_id']}>." if init.get("salon_discussion_id") else "."))
+
+
+def mp_place_perdue(init: dict, equipe: dict) -> str:
+    return (f"❌ **{_titre(init)}** : ton équipe **{escape_markdown(equipe['nom'])}** n'a pas validé sa "
+            "participation à temps, elle perd sa place au tournoi.")
+
+
+def mp_place_gagnee(init: dict, equipe: dict) -> str:
+    salon = f" Rejoins le salon du tournoi : <#{init['salon_discussion_id']}>." if init.get("salon_discussion_id") else ""
+    return (f"🎉 **{_titre(init)}** : une place s'est libérée, ton équipe **{escape_markdown(equipe['nom'])}** "
+            f"**participe au tournoi** !{salon}")
+
+
+def mp_toujours_en_attente(init: dict, equipe: dict, position: int) -> str:
+    return (f"⏳ **{_titre(init)}** : fin des validations. Ton équipe **{escape_markdown(equipe['nom'])}** reste "
+            f"**{_rang(position)}** sur la liste d'attente : pas de place libérée pour elle cette fois.")
+
+
+def texte_fin_confirmation(init: dict, perdues: list[dict], promues: list[dict]) -> str:
+    """Salon de discussion et LOG_CHANNEL : bilan à la fin du délai."""
+    noms = lambda equipes: ", ".join(f"**{escape_markdown(e['nom'])}**" for e in equipes)  # noqa: E731
+    nb = len(init["equipes"])
+    lignes = [f"✅ Fin des validations pour **{_titre(init)}** : {nb} équipe{'s' if nb > 1 else ''} participe"
+              f"{'nt' if nb > 1 else ''}."]
+    if perdues:
+        lignes.append(f"❌ Pas validé à temps : {noms(perdues)}.")
+    if promues:
+        lignes.append(f"🎉 Montée{'s' if len(promues) > 1 else ''} de la liste d'attente : {noms(promues)}.")
+    if nb % 2 or nb < 2:
+        lignes.append(f"⚠️ {nb} équipe{'s' if nb > 1 else ''} : il en faut un nombre pair (au moins 2) pour "
+                      "lancer le tournoi.")
+    return "\n".join(lignes)
+
+
 def mp_pp_modifiee(etat: dict, numero: int, match: dict) -> str:
     """Aux joueurs, quand un admin change la partie privée d'une partie déjà créée."""
     return "\n".join([

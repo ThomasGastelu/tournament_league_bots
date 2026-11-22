@@ -79,6 +79,10 @@ class Stockage:
     def lister_etats(self, serveur_id: str | None = None) -> list[dict]:
         return self._lister(self.dossier_etats, "tournoi_id", serveur_id)
 
+    def lister_inits(self, serveur_id: str | None = None) -> list[dict]:
+        """Ce que /start_tournament_init a créé, pour tous les tournois (data/salons)."""
+        return self._lister(self.dossier_salons, "tournoi_id", serveur_id)
+
     def archiver_etat(self, tournoi_id: str, suffixe: str) -> Path | None:
         """Déplace l'état d'un ancien tournoi dans data/archives (avant de le relancer)."""
         source = self.dossier_etats / f"{_verifier_id(tournoi_id)}.json"

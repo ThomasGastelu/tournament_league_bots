@@ -11,6 +11,7 @@ from bot_tournament_manager import messages as M
 from bot_tournament_manager.deroulement import GestionnaireTournois
 from bot_tournament_manager.stockage import Stockage
 
+from .outils import demarrer
 from .outils import ADMIN, SERVEUR, FausseMessagerie, ecrire_inscription, faux_pp, tournoi_inscription
 
 TID = "1571169059024928818"
@@ -96,7 +97,7 @@ def gestionnaire(tmp_path: Path):
 def test_tournoi_complet_avec_golden_round(tmp_path):
     async def scenario():
         g, stockage, messagerie = gestionnaire(tmp_path)
-        await g.demarrer(TID, 3, serveur_id=SERVEUR, lance_par=ADMIN, golden_round=3)
+        await demarrer(g, TID, 3, serveur_id=SERVEUR, lance_par=ADMIN, golden_round=3)
         await g.attendre(TID)
         return stockage.charger_etat(TID), messagerie
 
@@ -122,7 +123,7 @@ def test_golden_round_trop_grand_refuse_au_lancement(tmp_path):
     async def scenario():
         g, stockage, _ = gestionnaire(tmp_path)
         with pytest.raises(L.ErreurTournoi, match="golden round"):
-            await g.demarrer(TID, 3, serveur_id=SERVEUR, lance_par=ADMIN, golden_round=5)
+            await demarrer(g, TID, 3, serveur_id=SERVEUR, lance_par=ADMIN, golden_round=5)
         return stockage.charger_etat(TID)
 
     assert asyncio.run(scenario()) is None  # rien n'est lancé

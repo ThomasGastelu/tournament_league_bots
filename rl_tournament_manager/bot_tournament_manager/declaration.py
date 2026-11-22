@@ -5,6 +5,8 @@ ils marchent encore après un redémarrage du bot (discord.ui.DynamicItem, enreg
   les autres joueurs, et le bot commence à passer dans la partie.
 - « 📝 Déclarer le score » : envoyé aux joueurs quand le bot n'a pas pu prendre le score.
   Il ouvre une petite fenêtre (2 cases : buts de mon équipe, buts de l'adversaire).
+- « ✅ Valider ma participation » : envoyé par /start_tournament_init (avec delai_confirmation)
+  aux joueurs inscrits ; un clic suffit pour toute l'équipe.
 """
 
 from __future__ import annotations
@@ -142,4 +144,42 @@ def vue_pp_deja_creee() -> ui.View:
     vue = ui.View(timeout=None)
     vue.add_item(ui.Button(label="Partie privée créée", emoji="✅", style=discord.ButtonStyle.secondary,
                            custom_id="rlpp:fait", disabled=True))
+    return vue
+
+
+# --------------------------------------------------------------------------- #
+# « Valider ma participation » (/start_tournament_init)
+# --------------------------------------------------------------------------- #
+
+MODELE_ID_CONFIRMATION = r"rlconf:(?P<tournoi>\d+):(?P<equipe>\d+)"
+
+
+def custom_id_confirmation(tournoi_id: str, equipe_id: int) -> str:
+    return f"rlconf:{tournoi_id}:{equipe_id}"
+
+
+class BoutonConfirmation(ui.DynamicItem[ui.Button], template=MODELE_ID_CONFIRMATION):
+    def __init__(self, tournoi_id: str, equipe_id: int) -> None:
+        super().__init__(ui.Button(label="Valider ma participation", emoji="✅", style=discord.ButtonStyle.success,
+                                   custom_id=custom_id_confirmation(tournoi_id, equipe_id)))
+        self.tournoi_id, self.equipe_id = tournoi_id, equipe_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: ui.Button, match: re.Match[str], /):
+        return cls(match["tournoi"], int(match["equipe"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        gestionnaire = interaction.client.gestionnaire  # type: ignore[attr-defined]
+        try:
+            reponse = await gestionnaire.valider_participation(self.tournoi_id, self.equipe_id,
+                                                               par=str(interaction.user.id))
+        except L.ErreurTournoi as erreur:
+            reponse = f"❌ {erreur}"
+        await interaction.followup.send(reponse, ephemeral=True)
+
+
+def vue_confirmation(tournoi_id: str, equipe_id: int) -> ui.View:
+    vue = ui.View(timeout=None)
+    vue.add_item(BoutonConfirmation(tournoi_id, equipe_id))
     return vue

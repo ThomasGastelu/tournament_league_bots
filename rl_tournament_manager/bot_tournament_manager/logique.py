@@ -40,6 +40,7 @@ POINTS_DEFAITE = 0
 
 # Statuts du fichier d'inscription (rl_bot_ppname_creator)
 INSCRITE = "inscrite"
+LISTE_ATTENTE = "liste_attente"
 CONFIRME = "confirme"
 
 # Raison affichée pour un match dont les équipes doivent déclarer le score
@@ -110,9 +111,20 @@ def nouvel_etat(tournoi: dict, equipes: list[dict], *, nombre_de_rondes: int,
     }
 
 
-def etat_init(tournoi: dict, equipes: list[dict], *, par: str, maintenant: str) -> dict:
-    """/start_tournament_init : de quoi créer le salon de discussion avant le lancement du tournoi."""
-    return {
+def equipes_en_attente(tournoi: dict) -> list[dict]:
+    """Liste d'attente du fichier d'inscription, dans l'ordre (la première monte en premier).
+    Seules les équipes dont tous les joueurs ont confirmé peuvent prendre une place."""
+    return sorted((e for e in tournoi.get("equipes", []) if e.get("statut") == LISTE_ATTENTE and e.get("joueurs")
+                   and all(j.get("statut") == CONFIRME for j in e["joueurs"])), key=lambda e: e["id"])
+
+
+def etat_init(tournoi: dict, equipes: list[dict], *, par: str, maintenant: str,
+              attente: list[dict] | None = None, delai_confirmation: float = 0, fin_confirmation: str | None = None) -> dict:
+    """/start_tournament_init : de quoi créer le salon de discussion avant le lancement du tournoi.
+
+    Avec `delai_confirmation` (minutes) : les équipes ont jusqu'à `fin_confirmation` pour valider leur
+    participation ; ensuite celles qui n'ont pas validé perdent leur place, prise par la liste d'attente."""
+    init = {
         "tournoi_id": tournoi["id"],
         "titre": tournoi["titre"],
         "serveur_id": tournoi["serveur_id"],
@@ -122,6 +134,90 @@ def etat_init(tournoi: dict, equipes: list[dict], *, par: str, maintenant: str) 
         "init_le": maintenant,
         "equipes": {str(e["id"]): _nouvelle_equipe(e) for e in equipes},
     }
+    if delai_confirmation > 0:
+        init["confirmation"] = {
+            "delai_minutes": delai_confirmation,
+            "fin": fin_confirmation or maintenant,
+            "terminee": False,
+            "validees": {},  # id d'équipe → {"par": joueur, "le": horodatage}
+            "attente": [_nouvelle_equipe(e) for e in attente or []],  # dans l'ordre de la liste d'attente
+            "perdues": [],   # équipes qui n'ont pas validé à temps
+            "promues": [],   # équipes de la liste d'attente qui ont pris leur place
+        }
+    return init
+
+
+def confirmation_en_cours(init: dict | None) -> bool:
+    return bool(init and init.get("confirmation") and not init["confirmation"]["terminee"])
+
+
+def toutes_validees(init: dict) -> bool:
+    return set(init["equipes"]) <= set(init["confirmation"]["validees"])
+
+
+def valider_participation(init: dict, equipe_id: int, joueur_id: str, *, maintenant: str) -> bool:
+    """Bouton « Valider ma participation ». Un joueur suffit pour toute l'équipe.
+    Renvoie False si l'équipe avait déjà validé."""
+    confirmation = init.get("confirmation")
+    cle = str(equipe_id)
+    if not confirmation:
+        raise ErreurTournoi("Il n'y a pas de participation à valider pour ce tournoi.")
+    if int(equipe_id) in confirmation["perdues"]:
+        raise ErreurTournoi("Le délai est passé : ton équipe a perdu sa place.")
+    if cle not in init["equipes"]:
+        raise ErreurTournoi("Ton équipe ne fait pas partie des équipes de ce tournoi.")
+    if not any(j["id"] == str(joueur_id) for j in init["equipes"][cle]["joueurs"]):
+        raise ErreurTournoi(f"Seuls les joueurs de **{init['equipes'][cle]['nom']}** peuvent valider.")
+    if cle in confirmation["validees"]:
+        return False
+    if confirmation["terminee"]:
+        raise ErreurTournoi("Le délai de validation est passé.")
+    confirmation["validees"][cle] = {"par": str(joueur_id), "le": maintenant}
+    return True
+
+
+def terminer_confirmation(init: dict) -> tuple[list[dict], list[dict]]:
+    """Fin du délai : les équipes qui n'ont pas validé perdent leur place, les premières équipes de la
+    liste d'attente la prennent (dans l'ordre). Renvoie (équipes perdues, équipes promues)."""
+    confirmation = init["confirmation"]
+    if confirmation["terminee"]:
+        return [], []
+    perdues = [e for cle, e in sorted(init["equipes"].items(), key=lambda c: int(c[0]))
+               if cle not in confirmation["validees"]]
+    for equipe in perdues:
+        del init["equipes"][str(equipe["id"])]
+    promues = confirmation["attente"][:len(perdues)]
+    confirmation["attente"] = confirmation["attente"][len(perdues):]
+    for equipe in promues:
+        init["equipes"][str(equipe["id"])] = equipe
+    confirmation["perdues"] += [e["id"] for e in perdues]
+    confirmation["promues"] += [e["id"] for e in promues]
+    confirmation["terminee"] = True
+    return perdues, promues
+
+
+def equipes_du_lancement(tournoi: dict, init: dict) -> list[dict]:
+    """Équipes que /start_tournament_rl fait jouer. Après une confirmation : celles qui ont validé et
+    celles montées de la liste d'attente (avec les joueurs à jour du fichier d'inscription).
+    Sans confirmation : les équipes inscrites du fichier d'inscription."""
+    if not init.get("confirmation"):
+        return equipes_participantes(tournoi)
+    ids = {int(cle) for cle in init["equipes"]}
+    equipes = sorted((e for e in tournoi.get("equipes", []) if e["id"] in ids), key=lambda e: e["id"])
+    if len(equipes) < 2:
+        raise ErreurTournoi(f"Il faut au moins 2 équipes pour lancer le tournoi : seules {len(equipes)} ont "
+                            "validé leur participation (ou sont montées de la liste d'attente).")
+    if len(equipes) % 2:
+        raise ErreurTournoi(f"Le nombre d'équipes doit être pair : {len(equipes)} équipes ont validé leur "
+                            "participation (ou sont montées de la liste d'attente), et la liste d'attente est vide. "
+                            "Remets le tournoi à zéro avec `/reset_tournament_rl` puis relance "
+                            "`/start_tournament_init`.")
+    incompletes = [e["nom"] for e in equipes
+                   if not e.get("joueurs") or any(j.get("statut") != CONFIRME for j in e["joueurs"])]
+    if incompletes:
+        raise ErreurTournoi("Ces équipes ont des joueurs qui n'ont pas encore confirmé : "
+                            + ", ".join(f"**{nom}**" for nom in incompletes) + ".")
+    return equipes
 
 
 LONGUEUR_MAX_PP = 32

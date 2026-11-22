@@ -12,6 +12,7 @@ from bot_tournament_manager.deroulement import GestionnaireTournois
 from bot_tournament_manager.simulation import Simulation, score_au_hasard, score_different
 from bot_tournament_manager.stockage import Stockage
 
+from .outils import demarrer
 from .outils import ADMIN, SERVEUR, FausseMessagerie, attendre_que, ecrire_inscription, faux_pp, tournoi_inscription
 
 TID = "1571169059024928818"
@@ -41,7 +42,7 @@ def test_tournoi_simule_va_jusqu_au_bout_tout_seul(tmp_path):
     async def scenario():
         simulation = Simulation(delai_clic=0, delai_declaration=0, rng=random.Random(2))
         g, stockage, messagerie = creer(tmp_path, 8, simulation=simulation)
-        await g.demarrer(TID, 3, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 3, serveur_id=SERVEUR, lance_par=ADMIN)
         await asyncio.wait_for(g.attendre(TID), 10)
         return stockage.charger_etat(TID), messagerie
 
@@ -62,7 +63,7 @@ def test_simulation_attend_le_delai_avant_de_declarer(tmp_path):
     async def scenario():
         simulation = Simulation(delai_clic=0, delai_declaration=0, rng=random.Random(2))
         g, stockage, messagerie = creer(tmp_path, 2, simulation=simulation, delai=1.5)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
                            and bool(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["pp_creee_le"]))
         await asyncio.sleep(0.1)
@@ -79,7 +80,7 @@ def test_desaccord_simule_attend_un_admin(tmp_path):
     async def scenario():
         simulation = Simulation(delai_clic=0, delai_declaration=0, proba_desaccord=1, rng=random.Random(2))
         g, stockage, messagerie = creer(tmp_path, 2, simulation=simulation)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(stockage.charger_etat(TID)["rondes"])
                            and len(stockage.charger_etat(TID)["rondes"][0]["matchs"][0]["declarations"]) == 2)
         await asyncio.sleep(0.05)
@@ -97,7 +98,7 @@ def test_desaccord_simule_attend_un_admin(tmp_path):
 def test_sans_simulation_rien_n_est_automatique(tmp_path):
     async def scenario():
         g, stockage, messagerie = creer(tmp_path, 2, simulation=None)
-        await g.demarrer(TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
+        await demarrer(g, TID, 1, serveur_id=SERVEUR, lance_par=ADMIN)
         await attendre_que(lambda: bool(messagerie.boutons_pp))
         await asyncio.sleep(0.2)
         match = stockage.charger_etat(TID)["rondes"][0]["matchs"][0]

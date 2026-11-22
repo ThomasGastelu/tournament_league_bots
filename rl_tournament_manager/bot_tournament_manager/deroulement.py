@@ -4,6 +4,11 @@ Une tâche asyncio par tournoi en cours. L'état est relu et réécrit dans le
 JSON à chaque étape : si le bot redémarre, reprendre() relance les tournois
 là où ils en étaient.
 
+Avant le lancement, /start_tournament_init crée le salon de discussion et, avec `delai_confirmation`,
+demande aux équipes de valider leur participation (bouton en MP). À la fin du délai, les équipes qui
+n'ont pas validé perdent leur place, prise par la liste d'attente (dans l'ordre). /start_tournament_rl
+est refusé tant que /start_tournament_init n'a pas été fait, ou que le délai n'est pas fini.
+
 Pour chaque round :
   1. tirage (round 1) ou rotation des zones (rounds suivants) ;
   2. parties privées tomato_A, tomato_B… (une lettre par zone, voir pp.py) ;
@@ -27,7 +32,7 @@ import asyncio
 import logging
 import random
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -56,9 +61,10 @@ class Messagerie(Protocol):
 
     async def mp(self, etat: dict, joueur_id: str, texte: str, secours: str | None = None,
                  declaration: tuple[int, int, int] | None = None,
-                 pp_creee: tuple[int, int] | None = None) -> bool:
+                 pp_creee: tuple[int, int] | None = None, confirmation: int | None = None) -> bool:
         """MP à un joueur. Boutons : `declaration` = (round, zone, équipe) → « Déclarer le score » ;
-        `pp_creee` = (round, zone) → « Partie privée créée »."""
+        `pp_creee` = (round, zone) → « Partie privée créée » ; `confirmation` = équipe →
+        « Valider ma participation »."""
         ...
 
     async def annonce(self, etat: dict, texte: str | None = None,
@@ -134,6 +140,9 @@ class GestionnaireTournois:
         self._taches_matchs: dict[tuple[str, int, int], asyncio.Task] = {}
         self._validations: dict[str, asyncio.Event] = {}
         self._pp_creees: dict[tuple[str, int, int], asyncio.Event] = {}  # clic « Partie privée créée »
+        # /start_tournament_init delai_confirmation : une tâche par tournoi jusqu'à la fin du délai.
+        self._taches_confirmation: dict[str, asyncio.Task] = {}
+        self._toutes_validees: dict[str, asyncio.Event] = {}
 
     # ------------------------------------------------------------------- #
     # Commandes
@@ -153,14 +162,23 @@ class GestionnaireTournois:
             ancien = self.stockage.charger_etat(tournoi_id)
             if ancien and ancien["statut"] == L.EN_COURS:
                 raise L.ErreurTournoi("Ce tournoi est déjà en cours. Arrête-le d'abord avec `/stop_tournament_rl`.")
-            equipes = L.equipes_participantes(tournoi)
+            # /start_tournament_init est obligatoire : salon de discussion et validation des participations.
+            init = self.stockage.charger_init(tournoi_id)
+            if init is None or init.get("serveur_id") != serveur_id:
+                raise L.ErreurTournoi(
+                    "Fais d'abord `/start_tournament_init id_tournoi:" + tournoi_id + " delai_confirmation:…` : "
+                    "il crée le salon du tournoi et demande aux équipes de valider leur participation.")
+            if L.confirmation_en_cours(init):
+                raise L.ErreurTournoi(
+                    "Les équipes peuvent encore valider leur participation jusqu'à "
+                    f"{M.heure_discord(init['confirmation']['fin'])} : lance le tournoi après.")
+            equipes = L.equipes_du_lancement(tournoi, init)
             etat = L.nouvel_etat(tournoi, equipes, nombre_de_rondes=nombre_de_rondes,
                                  lance_par=lance_par, maintenant=maintenant(), golden_round=golden_round)
             if ancien:
                 self.stockage.archiver_etat(tournoi_id, ancien.get("lance_le") or maintenant())
             # Salon de discussion créé avant par /start_tournament_init.
-            init = self.stockage.charger_init(tournoi_id)
-            if init and init.get("salon_discussion_id"):
+            if init.get("salon_discussion_id"):
                 etat["salon_discussion_id"] = str(init["salon_discussion_id"])
             self.stockage.sauvegarder_etat(etat)
         # Séparateur + lancement dans le salon des résultats, avant le récap du premier round.
@@ -168,9 +186,13 @@ class GestionnaireTournois:
         self._lancer(tournoi_id)
         return etat
 
-    async def initialiser(self, tournoi_id: str, *, serveur_id: str, par: str) -> dict:
+    async def initialiser(self, tournoi_id: str, *, serveur_id: str, par: str, delai_confirmation: float = 0) -> dict:
         """/start_tournament_init : crée le salon de discussion du tournoi (joueurs + admins) et y poste
-        « @here le tournoi va bientôt commencer ». /start_tournament_rl le reprend ensuite."""
+        « @here le tournoi va bientôt commencer ». /start_tournament_rl le reprend ensuite.
+
+        `delai_confirmation` (minutes, 0 = pas de validation) : MP aux joueurs inscrits avec le bouton
+        « Valider ma participation », MP à la liste d'attente ; à la fin du délai, les équipes qui
+        n'ont pas validé sont remplacées par la liste d'attente."""
         tournoi_id = tournoi_id.strip()
         async with self.stockage.verrou(tournoi_id):
             tournoi = self.stockage.charger_inscription(tournoi_id)
@@ -181,11 +203,15 @@ class GestionnaireTournois:
                 raise L.ErreurTournoi("Ce tournoi est déjà lancé.")
             ancien = self.stockage.charger_init(tournoi_id)
             equipes = L.equipes_participantes(tournoi)
+            attente = L.equipes_en_attente(tournoi)
         if ancien and ancien.get("salon_discussion_id") and await self.messagerie.salon_existe(
                 ancien["salon_discussion_id"]):
             raise L.ErreurTournoi(f"Le salon de ce tournoi existe déjà : <#{ancien['salon_discussion_id']}>.")
 
-        init = L.etat_init(tournoi, equipes, par=par, maintenant=maintenant())
+        await self._annuler_confirmation(tournoi_id)  # ancienne validation (salon supprimé depuis)
+        fin = (datetime.now() + timedelta(minutes=delai_confirmation)).isoformat()
+        init = L.etat_init(tournoi, equipes, par=par, maintenant=maintenant(), attente=attente,
+                           delai_confirmation=delai_confirmation, fin_confirmation=fin)
         try:
             salon_id = await self.messagerie.creer_salon_discussion(init)
         except Exception:
@@ -198,7 +224,30 @@ class GestionnaireTournois:
             self.stockage.sauvegarder_init(init)
         await self.messagerie.message_salon(str(salon_id), M.TEXTE_INIT, mentionner_here=True)
         log.info("Tournoi %s : salon de discussion %s créé par %s", tournoi_id, salon_id, par)
+        if init.get("confirmation"):
+            log.info("Tournoi %s : %s équipe(s) doivent valider leur participation avant %s (%s en liste "
+                     "d'attente)", tournoi_id, len(init["equipes"]), fin[11:16], len(attente))
+            await self._envoyer_confirmations(init)
+            self._lancer_confirmation(tournoi_id)
         return init
+
+    async def valider_participation(self, tournoi_id: str, equipe_id: int, *, par: str) -> str:
+        """Bouton « Valider ma participation ». Renvoie la réponse (éphémère) pour le joueur."""
+        async with self.stockage.verrou(tournoi_id):
+            init = self.stockage.charger_init(tournoi_id)
+            if init is None:
+                raise L.ErreurTournoi("Ce tournoi n'existe plus.")
+            nouvelle = L.valider_participation(init, equipe_id, par, maintenant=maintenant())
+            if nouvelle:
+                self.stockage.sauvegarder_init(init)
+        if nouvelle:
+            log.info("Tournoi %s : participation de l'équipe %s validée par %s", tournoi_id, equipe_id, par)
+            for joueur in init["equipes"][str(equipe_id)]["joueurs"]:
+                if joueur["id"] != str(par):
+                    await self.messagerie.mp(init, joueur["id"], M.mp_validation_equipe(init, equipe_id, par))
+            if L.toutes_validees(init):  # inutile d'attendre la fin du délai
+                self._toutes_validees.setdefault(tournoi_id, asyncio.Event()).set()
+        return M.reponse_validation(init, equipe_id, nouvelle)
 
     async def modifier_pp(self, tournoi_id: str, zone: int, nom: str, mot_de_passe: str | None, *,
                           serveur_id: str, par: str) -> tuple[dict, dict]:
@@ -237,6 +286,11 @@ class GestionnaireTournois:
         ids = [e["tournoi_id"] for e in self.stockage.lister_etats() if e.get("statut") == L.EN_COURS]
         for tournoi_id in ids:
             self._lancer(tournoi_id)
+        # Validations des participations pas encore terminées : le délai reprend là où il en était.
+        for init in self.stockage.lister_inits():
+            if L.confirmation_en_cours(init):
+                self._lancer_confirmation(init["tournoi_id"])
+                ids.append(f"{init['tournoi_id']} (validation des participations)")
         return ids
 
     async def arreter(self, tournoi_id: str, *, serveur_id: str, par: str) -> dict:
@@ -287,6 +341,7 @@ class GestionnaireTournois:
                 L.arreter(etat, par=par, maintenant=maintenant())
                 self.stockage.sauvegarder_etat(etat)
         await self._annuler_taches(tournoi_id)
+        await self._annuler_confirmation(tournoi_id)
         async with self.stockage.verrou(tournoi_id):
             supprimes = self.stockage.supprimer_tournoi(tournoi_id)
         self._validations.pop(tournoi_id, None)
@@ -483,7 +538,8 @@ class GestionnaireTournois:
 
     async def fermer(self) -> None:
         """Arrêt du bot : les tâches s'arrêtent, les tournois restent « en cours » et reprendront."""
-        taches = list(self._taches.values()) + list(self._taches_matchs.values())
+        taches = (list(self._taches.values()) + list(self._taches_matchs.values())
+                  + list(self._taches_confirmation.values()))
         for tache in taches:
             tache.cancel()
         await asyncio.gather(*taches, return_exceptions=True)
@@ -493,6 +549,94 @@ class GestionnaireTournois:
     # ------------------------------------------------------------------- #
     # Boucle d'un tournoi
     # ------------------------------------------------------------------- #
+
+    # ------------------------------------------------------------------- #
+    # Validation des participations (/start_tournament_init)
+    # ------------------------------------------------------------------- #
+
+    async def _envoyer_confirmations(self, init: dict) -> None:
+        """MP avec le bouton « Valider ma participation » aux inscrits, MP d'attente à la liste d'attente."""
+        for equipe in sorted(init["equipes"].values(), key=lambda e: e["id"]):
+            for joueur in equipe["joueurs"]:
+                await self.messagerie.mp(init, joueur["id"], M.mp_confirmation(init, equipe["id"]),
+                                         confirmation=equipe["id"])
+        for position, equipe in enumerate(init["confirmation"]["attente"], start=1):
+            for joueur in equipe["joueurs"]:
+                await self.messagerie.mp(init, joueur["id"], M.mp_liste_attente(init, equipe["id"], position))
+        if self.simulation is not None:
+            self.simulation.confirmations_demandees(init)
+
+    def _lancer_confirmation(self, tournoi_id: str) -> None:
+        tache = self._taches_confirmation.get(tournoi_id)
+        if tache is not None and not tache.done():
+            return
+        self._toutes_validees[tournoi_id] = asyncio.Event()
+        tache = asyncio.create_task(self._attendre_confirmation(tournoi_id), name=f"confirmation-{tournoi_id}")
+        self._taches_confirmation[tournoi_id] = tache
+        tache.add_done_callback(lambda t: self._taches_confirmation.pop(tournoi_id, None)
+                                if self._taches_confirmation.get(tournoi_id) is t else None)
+
+    async def attendre_confirmation(self, tournoi_id: str) -> None:
+        """Attend la fin de la validation des participations (utile pour les tests)."""
+        tache = self._taches_confirmation.get(tournoi_id)
+        if tache is not None:
+            await tache
+
+    async def _annuler_confirmation(self, tournoi_id: str) -> None:
+        tache = self._taches_confirmation.pop(tournoi_id, None)
+        self._toutes_validees.pop(tournoi_id, None)
+        if tache is not None and tache is not asyncio.current_task():
+            tache.cancel()
+            await asyncio.gather(tache, return_exceptions=True)
+
+    async def _attendre_confirmation(self, tournoi_id: str) -> None:
+        try:
+            init = self.stockage.charger_init(tournoi_id)
+            if not L.confirmation_en_cours(init):
+                return
+            evenement = self._toutes_validees.setdefault(tournoi_id, asyncio.Event())
+            if L.toutes_validees(init):
+                evenement.set()
+            restant = 0.0
+            try:
+                restant = max(0.0, (datetime.fromisoformat(init["confirmation"]["fin"])
+                                    - datetime.now()).total_seconds())
+            except ValueError:
+                pass
+            await _attendre(evenement, restant)
+            await self._terminer_confirmation(tournoi_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Tournoi %s : erreur à la fin de la validation des participations", tournoi_id)
+
+    async def _terminer_confirmation(self, tournoi_id: str) -> None:
+        """Fin du délai : places perdues, liste d'attente qui avance, MP et accès au salon."""
+        async with self.stockage.verrou(tournoi_id):
+            init = self.stockage.charger_init(tournoi_id)
+            if not L.confirmation_en_cours(init):
+                return
+            perdues, promues = L.terminer_confirmation(init)
+            self.stockage.sauvegarder_init(init)
+        log.info("Tournoi %s : fin de la validation des participations (%s place(s) perdue(s), %s équipe(s) "
+                 "montée(s) de la liste d'attente)", tournoi_id, len(perdues), len(promues))
+        for equipe in perdues:
+            for joueur in equipe["joueurs"]:
+                await self.messagerie.mp(init, joueur["id"], M.mp_place_perdue(init, equipe))
+                if init.get("salon_discussion_id"):
+                    await self.messagerie.changer_acces_salon(init, retirer=joueur["id"])
+        for equipe in promues:
+            for joueur in equipe["joueurs"]:
+                if init.get("salon_discussion_id"):
+                    await self.messagerie.changer_acces_salon(init, ajouter=joueur["id"])
+                await self.messagerie.mp(init, joueur["id"], M.mp_place_gagnee(init, equipe))
+        for position, equipe in enumerate(init["confirmation"]["attente"], start=1):
+            for joueur in equipe["joueurs"]:
+                await self.messagerie.mp(init, joueur["id"], M.mp_toujours_en_attente(init, equipe, position))
+        bilan = M.texte_fin_confirmation(init, perdues, promues)
+        if init.get("salon_discussion_id"):
+            await self.messagerie.message_salon(init["salon_discussion_id"], bilan)
+        await self.messagerie.journal(bilan)
 
     def _lancer(self, tournoi_id: str) -> None:
         if not self.est_actif(tournoi_id):
@@ -794,14 +938,17 @@ class MessagerieDiscord:
 
     async def mp(self, etat: dict, joueur_id: str, texte: str, secours: str | None = None,
                  declaration: tuple[int, int, int] | None = None,
-                 pp_creee: tuple[int, int] | None = None) -> bool:
+                 pp_creee: tuple[int, int] | None = None, confirmation: int | None = None) -> bool:
         """Envoie un MP. S'il est impossible (MP fermés…), poste `secours` dans le salon des annonces."""
-        from .declaration import vue_declaration, vue_pp_creee  # ici : utiles seulement avec Discord
+        # ici : utiles seulement avec Discord
+        from .declaration import vue_confirmation, vue_declaration, vue_pp_creee
 
         if declaration:
             vue = vue_declaration(etat["tournoi_id"], *declaration)
         elif pp_creee:
             vue = vue_pp_creee(etat["tournoi_id"], *pp_creee)
+        elif confirmation is not None:
+            vue = vue_confirmation(etat["tournoi_id"], confirmation)
         else:
             vue = None
         kwargs = {"view": vue} if vue else {}
