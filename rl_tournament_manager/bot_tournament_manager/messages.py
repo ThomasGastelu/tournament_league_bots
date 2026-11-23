@@ -745,6 +745,72 @@ def embeds_alerte_match(etat: dict, numero: int, match: dict, probleme: str,
 
 
 # --------------------------------------------------------------------------- #
+# /start_tournament_init_status
+# --------------------------------------------------------------------------- #
+
+def _ligne_equipe_init(equipe: dict, promues: list[int], position: int | None = None) -> str:
+    """« • **Equipe1** ⬆️ : pseudo 👑 (en jeu : …), pseudo2 (en jeu : …) »."""
+    joueurs = ", ".join(
+        f"{escape_markdown(j['pseudo'])}{' 👑' if j['id'] == equipe.get('capitaine_id') else ''} "
+        f"(en jeu : {escape_markdown(j.get('pseudo_jeu') or '?')})"
+        for j in equipe["joueurs"]) or "joueurs inconnus"
+    debut = f"`{position}.`" if position is not None else "•"
+    montee = " ⬆️" if equipe["id"] in promues else ""
+    return f"{debut} **{escape_markdown(equipe['nom'])}**{montee} : {joueurs}"
+
+
+def _qui_a_valide(equipe: dict) -> str:
+    pseudo = next((j["pseudo"] for j in equipe["joueurs"] if j["id"] == equipe["validee_par"]), None)
+    qui = escape_markdown(pseudo) if pseudo else f"<@{equipe['validee_par']}>"
+    return f"   ↳ validé par {qui} à {heure_discord(equipe['validee_le'])}"
+
+
+def embeds_init_status(init: dict, bilan: dict, etat: dict | None = None) -> list[discord.Embed]:
+    """État des équipes entre /start_tournament_init et le lancement : qui a validé sa participation,
+    qui doit encore valider, places perdues et liste d'attente."""
+    lignes = []
+    nb = len(init["equipes"])
+    if bilan["avec_validation"]:
+        confirmation = init["confirmation"]
+        if bilan["en_cours"]:
+            lignes.append(f"⏳ Validation en cours jusqu'à {heure_discord(confirmation['fin'])}, "
+                          f"délai de {_minutes(confirmation['delai_minutes'])}.")
+        else:
+            lignes.append("🔒 Validation terminée.")
+        lignes.append(f"✅ **{len(bilan['validees'])}/{nb}** équipe{'s' if nb > 1 else ''} "
+                      f"{'ont' if len(bilan['validees']) > 1 else 'a'} validé.")
+        if bilan["promues"]:
+            n = len(bilan["promues"])
+            lignes.append(f"⬆️ {n} équipe{'s' if n > 1 else ''} montée{'s' if n > 1 else ''} de la liste d'attente.")
+    else:
+        lignes.append("ℹ️ Pas de validation des participations pour ce tournoi.")
+    if etat is not None:
+        statut = STATUTS_TOURNOI.get(etat.get("statut"), etat.get("statut"))
+        lignes.append(f"🏁 Tournoi déjà lancé ({statut}) : `/start_tournament_rl_status "
+                      f"id_tournoi:{init['tournoi_id']}`")
+    promues = bilan["promues"]
+    if bilan["avec_validation"]:
+        if bilan["validees"]:
+            lignes += ["", f"**✅ Ont validé ({len(bilan['validees'])})**"]
+            for equipe in bilan["validees"]:
+                lignes += [_ligne_equipe_init(equipe, promues), _qui_a_valide(equipe)]
+        if bilan["a_valider"]:
+            lignes += ["", f"**⏳ Pas encore validé ({len(bilan['a_valider'])})**"]
+            lignes += [_ligne_equipe_init(e, promues) for e in bilan["a_valider"]]
+        if bilan["perdues"]:
+            lignes += ["", f"**❌ Places perdues ({len(bilan['perdues'])})**"]
+            lignes += [_ligne_equipe_init(e, promues) for e in bilan["perdues"]]
+        lignes += ["", f"**📋 Liste d'attente ({len(bilan['attente'])})**"]
+        lignes += [_ligne_equipe_init(e, promues, position)
+                   for position, e in enumerate(bilan["attente"], start=1)] or ["Vide."]
+    else:
+        lignes += ["", f"**Équipes ({nb})**"]
+        lignes += [_ligne_equipe_init(e, promues) for e in bilan["a_valider"]]
+    return _embeds(f"📋 {init['titre']} : avant le tournoi", lignes,
+                   f"👑 capitaine · ⬆️ montée de la liste d'attente · ID : {init['tournoi_id']}")
+
+
+# --------------------------------------------------------------------------- #
 # /start_tournament_rl_status
 # --------------------------------------------------------------------------- #
 

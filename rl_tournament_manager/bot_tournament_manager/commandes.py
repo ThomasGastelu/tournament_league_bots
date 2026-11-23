@@ -1,5 +1,5 @@
-"""Commandes slash : /start_tournament_init, /start_tournament_rl, /start_tournament_rl_status,
-/start_tournament_modify_pp, /stop_tournament_rl, /reset_tournament_rl, /set_result_tournament_rl
+"""Commandes slash : /start_tournament_init, /start_tournament_init_status, /start_tournament_rl,
+/start_tournament_rl_status, /start_tournament_modify_pp, /stop_tournament_rl, /reset_tournament_rl, /set_result_tournament_rl
 et /edit_player_tournament_rl."""
 
 from __future__ import annotations
@@ -275,6 +275,42 @@ async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
 
 
 # --------------------------------------------------------------------------- #
+# /start_tournament_init_status
+# --------------------------------------------------------------------------- #
+
+async def autocomplete_init(interaction: discord.Interaction, actuel: str) -> list[app_commands.Choice[str]]:
+    """Tournois du serveur qui ont eu un /start_tournament_init."""
+    choix = []
+    for init in gestionnaire(interaction).stockage.lister_inits(str(interaction.guild_id)):
+        if L.confirmation_en_cours(init):
+            statut = "validation en cours"
+        elif init.get("confirmation"):
+            statut = "validation terminée"
+        else:
+            statut = "sans validation"
+        nom = f"{init['titre']} — {statut} ({init['tournoi_id']})"
+        choix.append(app_commands.Choice(name=nom[:100], value=init["tournoi_id"]))
+    return _filtrer(choix, actuel)
+
+
+@app_commands.command(name="start_tournament_init_status",
+                      description="Affiche les équipes avant le tournoi : validations, liste d'attente, places perdues")
+@app_commands.describe(id_tournoi="ID du tournoi")
+@app_commands.autocomplete(id_tournoi=autocomplete_init)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def start_tournament_init_status(interaction: discord.Interaction, id_tournoi: str) -> None:
+    g = gestionnaire(interaction)
+    tournoi_id = id_tournoi.strip()
+    init = g.stockage.charger_init(tournoi_id)
+    if init is None or init.get("serveur_id") != str(interaction.guild_id):
+        return await repondre(interaction, f"❌ Pas de `/start_tournament_init` pour le tournoi `{tournoi_id}` "
+                                           "sur ce serveur.")
+    bilan = L.bilan_validations(init, g.stockage.charger_inscription(tournoi_id))
+    await repondre(interaction, None, embeds=M.embeds_init_status(init, bilan, g.stockage.charger_etat(tournoi_id)))
+
+
+# --------------------------------------------------------------------------- #
 # /start_tournament_rl_status
 # --------------------------------------------------------------------------- #
 
@@ -486,7 +522,8 @@ async def edit_player_tournament_rl(
 
 
 COMMANDES = [start_tournament_rl, start_tournament_rl_status, stop_tournament_rl, set_result_tournament_rl,
-             edit_player_tournament_rl, reset_tournament_rl, start_tournament_init, start_tournament_modify_pp]
+             edit_player_tournament_rl, reset_tournament_rl, start_tournament_init, start_tournament_modify_pp,
+             start_tournament_init_status]
 
 
 async def gerer_erreur(interaction: discord.Interaction, erreur: app_commands.AppCommandError) -> None:

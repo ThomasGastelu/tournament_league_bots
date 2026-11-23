@@ -19,7 +19,8 @@ def test_lettres_apres_z():
 def test_noms_des_commandes():
     assert [c.name for c in COMMANDES] == [
         "start_tournament_rl", "start_tournament_rl_status", "stop_tournament_rl", "set_result_tournament_rl",
-        "edit_player_tournament_rl", "reset_tournament_rl", "start_tournament_init", "start_tournament_modify_pp"]
+        "edit_player_tournament_rl", "reset_tournament_rl", "start_tournament_init", "start_tournament_modify_pp",
+        "start_tournament_init_status"]
     start = COMMANDES[0]
     assert [p.name for p in start.parameters] == ["id_tournoi", "nombre_de_matchs", "golden_round"]
     assert [p.required for p in start.parameters] == [True, True, False]
@@ -38,3 +39,6 @@ def test_noms_des_commandes():
     assert [p.required for p in init.parameters] == [True, True]
     assert (init.get_parameter("delai_confirmation").min_value,
             init.get_parameter("delai_confirmation").max_value) == (1, 1440)
+    status_init = COMMANDES[8]
+    assert [p.name for p in status_init.parameters] == ["id_tournoi"]
+    assert status_init.default_permissions.manage_guild  # admins seulement

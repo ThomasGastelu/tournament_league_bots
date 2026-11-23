@@ -7,6 +7,7 @@ Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), 
 | Commande | Qui | Ce qu'elle fait |
 |---|---|---|
 | `/start_tournament_init id_tournoi delai_confirmation` | admins | **Obligatoire** avant le lancement : crée le salon de discussion du tournoi (voir « Salons »), y poste « @here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀 », et demande aux équipes de **valider leur participation** dans les `delai_confirmation` minutes (1 à 1440), sinon la liste d'attente prend leur place (voir « Validation des participations »). |
+| `/start_tournament_init_status id_tournoi` | admins | Entre `/start_tournament_init` et le lancement : où en sont les équipes (réponse visible par toi seul). Délai restant, nombre d'équipes qui ont validé, puis **✅ Ont validé** (qui a cliqué et à quelle heure), **⏳ Pas encore validé**, **❌ Places perdues** et **📋 Liste d'attente** (avec la position), chaque équipe avec ses joueurs (👑 capitaine, pseudo en jeu). ⬆️ marque les équipes montées de la liste d'attente. Ne modifie rien. |
 | `/start_tournament_rl id_tournoi nombre_de_matchs [golden_round]` | admins | Lance le tournoi avec les équipes qui ont validé leur participation (montées de la liste d'attente comprises), dans le salon créé par `/start_tournament_init`. **Refusé** (message d'erreur, rien n'est lancé) si `/start_tournament_init` n'a pas été fait, ou si le délai de validation n'est pas fini. `nombre_de_matchs` = nombre de matchs joués par chaque équipe (= nombre de rounds). `golden_round` (facultatif, 1 par défaut) = round à partir duquel la victoire en zone haute rapporte +3 (voir « Points »). |
 | `/start_tournament_rl_status id_tournoi` | tout le monde | Round en cours, état de chaque zone et classement (réponse visible par toi seul). |
 | `/stop_tournament_rl id_tournoi` | admins | Arrête le tournoi (après confirmation) : matchs en cours annulés, joueurs prévenus en MP. |
@@ -34,6 +35,8 @@ Les joueurs n'ont pas de commande à taper, ils ont des boutons dans leurs MP :
 - les équipes qui restent en liste d'attente reçoivent leur nouvelle position (seulement quand la liste avance : pas de MP à la fin des validations) ;
 - une équipe montée qui ne valide pas à temps perd la place à son tour, et l'équipe suivante de la liste d'attente monte (même délai). Ça continue jusqu'à ce que toutes les équipes aient validé ou que la liste d'attente soit vide ; `LOG_CHANNEL` note chaque étape ;
 - à la toute fin, le bilan est posté dans le salon de discussion et dans `LOG_CHANNEL`, et `/start_tournament_rl` peut être lancé.
+
+Pour suivre les validations pendant le délai : `/start_tournament_init_status id_tournoi`.
 
 Un bouton cliqué après le délai répond « le délai est passé ». Le délai survit à un redémarrage du bot (heure de fin gardée dans `data/salons/<id>.json`). Si le nombre d'équipes final est impair (pas assez d'équipes en liste d'attente), `/start_tournament_rl` le refuse : remets le tournoi à zéro (`/reset_tournament_rl`) et refais `/start_tournament_init`. Le fichier d'inscription n'est jamais modifié.
 

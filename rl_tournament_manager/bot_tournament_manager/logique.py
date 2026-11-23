@@ -226,6 +226,38 @@ def equipes_du_lancement(tournoi: dict, init: dict) -> list[dict]:
     return equipes
 
 
+def bilan_validations(init: dict, tournoi: dict | None = None) -> dict:
+    """/start_tournament_init_status : où en est la validation des participations.
+
+    Chaque équipe est dans une seule liste : `validees` (avec `validee_par` et `validee_le`), `a_valider`,
+    `perdues` (pas validé à temps) et `attente` (liste d'attente restante, dans l'ordre). `promues` donne les
+    ids des équipes montées de la liste d'attente. Les équipes perdues ne sont plus dans le fichier de
+    /start_tournament_init : leurs joueurs viennent du fichier d'inscription `tournoi` s'il est fourni."""
+    confirmation = init.get("confirmation") or {}
+    infos = confirmation.get("validees", {})
+    validees, a_valider = [], []
+    for cle, equipe in sorted(init["equipes"].items(), key=lambda c: int(c[0])):
+        if cle in infos:
+            validees.append({**equipe, "validee_par": infos[cle]["par"], "validee_le": infos[cle]["le"]})
+        else:
+            a_valider.append(equipe)
+    inscrites = {e["id"]: e for e in (tournoi or {}).get("equipes", [])}
+    perdues = []
+    for equipe_id in confirmation.get("perdues", []):
+        equipe = inscrites.get(equipe_id)
+        perdues.append(_nouvelle_equipe(equipe) if equipe and equipe.get("joueurs") else
+                       {"id": equipe_id, "nom": f"Équipe #{equipe_id}", "capitaine_id": None, "joueurs": []})
+    return {
+        "avec_validation": bool(confirmation),
+        "en_cours": confirmation_en_cours(init),
+        "validees": validees,
+        "a_valider": a_valider,
+        "perdues": perdues,
+        "attente": list(confirmation.get("attente", [])),
+        "promues": list(confirmation.get("promues", [])),
+    }
+
+
 LONGUEUR_MAX_PP = 32
 
 
