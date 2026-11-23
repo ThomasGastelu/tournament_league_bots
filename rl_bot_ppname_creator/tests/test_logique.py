@@ -408,3 +408,40 @@ def test_changer_le_delai_ne_touche_que_les_nouvelles_equipes(monkeypatch):
         L.verifier_peut_confirmer(t, e2["id"], "j2a", apres(6))
     expirees, _ = L.expirer_equipes(t, apres(6))
     assert expirees == [e2]
+
+
+def test_modifier_joueur_change_les_pseudos_du_capitaine():
+    t = tournoi()
+    e = inscrire(t, 1)
+    equipe, joueur, changements = L.modifier_joueur(t, "c1", pseudo="  Capi  ", pseudo_jeu=" Capi_RL ")
+    assert equipe is e and joueur["pseudo"] == "Capi" and joueur["pseudo_jeu"] == "Capi_RL"
+    assert changements == [("pseudo", "C1", "Capi"), ("pseudo_jeu", "C1_RL", "Capi_RL")]
+    # La copie « capitaine » de l'équipe suit aussi.
+    assert e["capitaine"] == {"pseudo": "Capi", "pseudo_jeu": "Capi_RL"}
+
+
+def test_modifier_joueur_coequipier_et_rien_a_changer():
+    t = tournoi()
+    e = inscrire(t, 1)
+    L.confirmer_joueur(t, e["id"], "j1a", "Lucas", T0)
+    _, joueur, changements = L.modifier_joueur(t, "j1a", pseudo_jeu="Lucas_Pro")
+    assert changements == [("pseudo_jeu", "Lucas", "Lucas_Pro")] and joueur["pseudo_jeu"] == "Lucas_Pro"
+    assert e["capitaine"]["pseudo_jeu"] == "C1_RL"
+    assert L.modifier_joueur(t, "j1a", pseudo_jeu="Lucas_Pro")[2] == []
+
+
+def test_modifier_joueur_refuse():
+    t = tournoi()
+    e = inscrire(t, 1)
+    with pytest.raises(L.ErreurTournoi, match="au moins un champ"):
+        L.modifier_joueur(t, "c1")
+    with pytest.raises(L.ErreurTournoi, match="aucune équipe"):
+        L.modifier_joueur(t, "intrus", pseudo="X")
+    with pytest.raises(L.ErreurTournoi, match="pas encore confirmé"):
+        L.modifier_joueur(t, "j1a", pseudo_jeu="X")
+    with pytest.raises(L.ErreurTournoi, match="maximum 32"):
+        L.modifier_joueur(t, "c1", pseudo="ok", pseudo_jeu="x" * 33)
+    assert L.joueur_dans_equipe(e, "c1")["pseudo"] == "C1"  # rien n'a bougé
+    L.annuler_equipe(t, e["id"], "test", T0)
+    with pytest.raises(L.ErreurTournoi, match="aucune équipe"):
+        L.modifier_joueur(t, "c1", pseudo="X")

@@ -12,7 +12,8 @@ import pytest
 from bot_inscription_manager import logique as L
 from bot_inscription_manager.commandes import (autocomplete_tournoi, texte_modification, tournoi_rl,
                                                tournoi_rl_modify, tournoi_rl_remove, tournoi_rl_remove_team,
-                                               tournoi_rl_status, tournoi_rl_status_all)
+                                               tournoi_rl_status, tournoi_rl_status_all,
+                                               tournoi_rl_modify_player)
 from bot_inscription_manager.inscription import (BoutonAnnuler, BoutonInscription, BoutonRefuser, BoutonValider,
                                                  FicheConfirmation,
                              ConfirmationAnnulation, FicheInscription)
@@ -503,3 +504,24 @@ def test_status_all_tournoi_inconnu(monde):
     lancer(tournoi_rl_status_all.callback(inter, tournoi_id="123"))
     assert "Aucun tournoi" in inter.dernier_texte()
     assert inter.reponses[-1][1]["ephemeral"] is True
+
+
+def test_modify_player_change_le_pseudo_et_previent_le_joueur(monde):
+    client, j = monde
+    tid = creer_tournoi(client, j["Admin"], equipes_max=4)
+    inscrire(client, j["Thomas"], [j["Lucas"]], "Les Tomates", tid)
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_modify_player.callback(inter, tournoi_id=tid, joueur=j["Thomas"], pseudo_jeu="Tomato_King"))
+    assert "Pseudo Rocket League : Thomas_RL → **Tomato_King**" in inter.dernier_texte()
+    assert inter.reponses[-1][1]["ephemeral"] is True
+    assert "Tomato_King" in j["Thomas"].mp[-1]
+    equipe = client.stockage.charger(tid)["equipes"][0]
+    assert equipe["joueurs"][0]["pseudo_jeu"] == "Tomato_King"
+    assert equipe["capitaine"]["pseudo_jeu"] == "Tomato_King"
+
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_modify_player.callback(inter, tournoi_id=tid, joueur=j["Lucas"], pseudo_jeu="X"))
+    assert "pas encore confirmé" in inter.dernier_texte()
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_modify_player.callback(inter, tournoi_id=tid, joueur=j["Zoe"], pseudo="Z"))
+    assert "aucune équipe" in inter.dernier_texte()

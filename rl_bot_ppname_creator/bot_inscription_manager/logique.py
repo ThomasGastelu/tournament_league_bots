@@ -30,6 +30,7 @@ LONGUEUR_MAX_CASHPRIZE = 100
 EQUIPES_MAX_LIMITE = 128
 LONGUEUR_MAX_NOM_EQUIPE = 32
 LONGUEUR_MAX_PSEUDO_JEU = 32
+LONGUEUR_MAX_PSEUDO = 32  # pseudo Discord enregistré dans l'équipe
 AVERTISSEMENT_PSEUDO_JEU = "⚠️ Exactement le même que dans le jeu, sinon on ne pourra pas t'évaluer."
 # Temps laissé aux coéquipiers pour confirmer, sinon l'équipe est désinscrite.
 # Valeur par défaut : au démarrage, main.py la remplace par DELAI_CONFIRMATION_MINUTES du fichier .env.
@@ -539,6 +540,46 @@ def ouvrir_inscriptions(tournoi: dict, maintenant: str) -> bool:
 # --------------------------------------------------------------------------- #
 # Modification par un admin
 # --------------------------------------------------------------------------- #
+
+
+def modifier_joueur(
+    tournoi: dict,
+    joueur_id: str,
+    *,
+    pseudo: str | None = None,
+    pseudo_jeu: str | None = None,
+) -> tuple[dict, dict, list[tuple[str, object, object]]]:
+    """Change le pseudo Discord et/ou le pseudo Rocket League d'un joueur inscrit (None = inchangé).
+
+    Le joueur doit être dans une équipe active (inscrite ou en liste d'attente).
+    Tout est vérifié avant de toucher au tournoi : en cas d'erreur, il reste intact.
+    Retourne (équipe, joueur, changements [(champ, ancienne valeur, nouvelle valeur)]).
+    """
+    if pseudo is None and pseudo_jeu is None:
+        raise ErreurTournoi("Indique au moins un champ à modifier : pseudo ou pseudo_jeu.")
+    equipe = equipe_du_joueur(tournoi, joueur_id)
+    if equipe is None:
+        raise ErreurTournoi("Ce joueur n'est dans aucune équipe inscrite ou en liste d'attente de ce tournoi.")
+    joueur = joueur_dans_equipe(equipe, joueur_id)
+
+    nouvelles: dict[str, str] = {}
+    if pseudo is not None:
+        nouvelles["pseudo"] = _texte_obligatoire(pseudo, "pseudo", LONGUEUR_MAX_PSEUDO)
+    if pseudo_jeu is not None:
+        if joueur["statut"] != CONFIRME:
+            raise ErreurTournoi(
+                f"**{joueur['pseudo']}** n'a pas encore confirmé sa participation : "
+                "il donnera son pseudo Rocket League en confirmant.")
+        nouvelles["pseudo_jeu"] = nettoyer_pseudo_jeu(pseudo_jeu)
+
+    changements = [(champ, joueur.get(champ), valeur) for champ, valeur in nouvelles.items()
+                   if joueur.get(champ) != valeur]
+    for champ, _ancienne, valeur in changements:
+        joueur[champ] = valeur
+        if joueur_id == equipe["capitaine_id"] and isinstance(equipe.get("capitaine"), dict):
+            equipe["capitaine"][champ] = valeur
+    return equipe, joueur, changements
+
 
 CHAMPS_MODIFIABLES = {"titre": "Titre", "cashprize": "Cashprize", "equipes_max": "Équipes max"}
 
