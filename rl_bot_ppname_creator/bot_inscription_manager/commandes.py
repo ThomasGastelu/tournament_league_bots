@@ -1,4 +1,5 @@
-"""Commandes slash : /tournoi_rl, /tournoi_rl_modify, /tournoi_rl_status, /tournoi_rl_remove_team, /tournoi_rl_remove."""
+"""Commandes slash : /tournoi_rl, /tournoi_rl_modify, /tournoi_rl_status, /tournoi_rl_reserve,
+/tournoi_rl_unreserve, /tournoi_rl_remove_team, /tournoi_rl_remove."""
 
 from __future__ import annotations
 
@@ -9,8 +10,8 @@ from discord import app_commands, ui
 
 from . import logique as L
 from .embeds import embed_annonce, embeds_status
-from .inscription import (apres_annulation, envoyer_mp, maintenant, mettre_a_jour_annonce, prevenir_promues,
-                          repondre, stockage, supprimer_annonce, vue_annonce)
+from .inscription import (apres_annulation, envoyer_mp, horaire, maintenant, mettre_a_jour_annonce,
+                          prevenir_promues, repondre, stockage, supprimer_annonce, texte_reservation, vue_annonce)
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +45,19 @@ async def autocomplete_equipe(interaction: discord.Interaction, actuel: str) -> 
     return choix[:25]
 
 
+async def autocomplete_reservation(interaction: discord.Interaction, actuel: str) -> list[app_commands.Choice[int]]:
+    tournoi_id = getattr(interaction.namespace, "id", None)
+    tournoi = stockage(interaction).charger(str(tournoi_id)) if tournoi_id else None
+    if tournoi is None:
+        return []
+    choix = []
+    for reservation in L.reservations_actives(tournoi):
+        nom = f"R{reservation['id']} {reservation['nom']} (capitaine {reservation['capitaine']})"
+        if actuel.lower() in nom.lower():
+            choix.append(app_commands.Choice(name=nom[:100], value=reservation["id"]))
+    return choix[:25]
+
+
 def tournoi_du_serveur(interaction: discord.Interaction, tournoi_id: str) -> dict | None:
     tournoi = stockage(interaction).charger(tournoi_id.strip())
     if tournoi is None or tournoi["serveur_id"] != str(interaction.guild_id):
@@ -62,6 +76,7 @@ def tournoi_du_serveur(interaction: discord.Interaction, tournoi_id: str) -> dic
     joueurs_par_equipe="Nombre de joueurs par équipe (1 à 3)",
     equipes_max="Nombre maximum d'équipes",
     date="Date du tournoi (ex : 6 septembre)",
+    delay="Minutes avant l'ouverture des inscriptions, pour réserver des places d'ici là (0 = tout de suite)",
 )
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_guild=True)
@@ -72,6 +87,7 @@ async def tournoi_rl(
     joueurs_par_equipe: app_commands.Range[int, 1, 3],
     equipes_max: app_commands.Range[int, 1, L.EQUIPES_MAX_LIMITE],
     date: app_commands.Range[str, 1, 100],
+    delay: app_commands.Range[int, 0, L.DELAI_OUVERTURE_MAX_MINUTES] = 0,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     tournoi = L.nouveau_tournoi(
@@ -80,6 +96,7 @@ async def tournoi_rl(
         equipes_max=equipes_max, date=date,
         serveur_id=str(interaction.guild_id), salon_id=str(interaction.channel_id),
         cree_par=str(interaction.user.id), maintenant=maintenant(),
+        delai_ouverture_minutes=delay,
     )
     try:
         message = await interaction.channel.send(  # type: ignore[union-attr]
@@ -89,7 +106,11 @@ async def tournoi_rl(
 
     tournoi["message_id"] = str(message.id)
     stockage(interaction).sauvegarder(tournoi)
-    await repondre(interaction, f"✅ Tournoi **{titre}** créé. ID : `{tournoi['id']}`")
+    texte = f"✅ Tournoi **{titre}** créé. ID : `{tournoi['id']}`"
+    if tournoi["ouverture_inscriptions"]:
+        texte += (f"\n🕒 Les inscriptions ouvrent {horaire(tournoi['ouverture_inscriptions'])}. "
+                  f"D'ici là, réserve des places avec `/tournoi_rl_reserve`.")
+    await repondre(interaction, texte)
 
 
 # --------------------------------------------------------------------------- #
@@ -179,6 +200,92 @@ async def tournoi_rl_status(interaction: discord.Interaction, tournoi_id: str) -
 
 
 # --------------------------------------------------------------------------- #
+# /tournoi_rl_reserve et /tournoi_rl_unreserve
+# --------------------------------------------------------------------------- #
+
+@app_commands.command(name="tournoi_rl_reserve",
+                      description="Réserve une place du tournoi pour l'équipe d'un capitaine (invités, partenaires)")
+@app_commands.rename(tournoi_id="id")
+@app_commands.describe(
+    tournoi_id="ID du tournoi",
+    capitaine="Le capitaine qui pourra utiliser la place (lui seul)",
+    nom="Nom affiché pour la réservation (ex : Partenaire Tomato)",
+    duree="Minutes pendant lesquelles la place reste bloquée ; ensuite elle est rendue aux autres équipes",
+)
+@app_commands.autocomplete(tournoi_id=autocomplete_tournoi)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def tournoi_rl_reserve(
+    interaction: discord.Interaction,
+    tournoi_id: str,
+    capitaine: discord.Member,
+    nom: app_commands.Range[str, 1, L.LONGUEUR_MAX_NOM_EQUIPE],
+    duree: app_commands.Range[int, 1, L.DUREE_RESERVATION_MAX_MINUTES],
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    if capitaine.bot:
+        return await repondre(interaction, f"❌ **{capitaine.display_name}** est un bot.")
+    st = stockage(interaction)
+    tournoi_id = tournoi_id.strip()
+    async with st.verrou(tournoi_id):
+        tournoi = tournoi_du_serveur(interaction, tournoi_id)
+        if tournoi is None:
+            return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
+        try:
+            reservation = L.reserver_place(
+                tournoi, nom=nom, capitaine=(str(capitaine.id), capitaine.display_name), duree_minutes=duree,
+                cree_par=str(interaction.user.id), maintenant=maintenant())
+        except L.ErreurTournoi as erreur:
+            return await repondre(interaction, f"❌ {erreur}")
+        st.sauvegarder(tournoi)
+
+    log.info("Tournoi %s : place R%s réservée pour %s (%s) par %s jusqu'à %s", tournoi["id"], reservation["id"],
+             reservation["nom"], capitaine.id, interaction.user.id, reservation["expire_le"])
+    await mettre_a_jour_annonce(interaction.client, tournoi["id"])
+    prevenu = await envoyer_mp(interaction.client, capitaine.id, texte_reservation(tournoi, reservation))
+    texte = (f"🔒 Place `R{reservation['id']}` réservée pour **{reservation['nom']}** "
+             f"(capitaine **{capitaine.display_name}**) jusqu'à {horaire(reservation['expire_le'])}.\n"
+             f"Places libres restantes : **{L.places_libres(tournoi)}**.")
+    texte += ("\n📩 Le capitaine a été prévenu en MP." if prevenu else
+              "\n⚠️ Impossible d'envoyer un MP au capitaine (MP fermés) : préviens-le toi-même.")
+    await repondre(interaction, texte)
+
+
+@app_commands.command(name="tournoi_rl_unreserve",
+                      description="Annule une place réservée et la rend aux autres équipes")
+@app_commands.rename(tournoi_id="id")
+@app_commands.describe(tournoi_id="ID du tournoi", reservation="Réservation à annuler (Rn dans /tournoi_rl_status)")
+@app_commands.autocomplete(tournoi_id=autocomplete_tournoi, reservation=autocomplete_reservation)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def tournoi_rl_unreserve(interaction: discord.Interaction, tournoi_id: str, reservation: int) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    st = stockage(interaction)
+    tournoi_id = tournoi_id.strip()
+    async with st.verrou(tournoi_id):
+        tournoi = tournoi_du_serveur(interaction, tournoi_id)
+        if tournoi is None:
+            return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
+        try:
+            annulee, promues = L.annuler_reservation(tournoi, reservation, maintenant())
+        except L.ErreurTournoi as erreur:
+            return await repondre(interaction, f"❌ {erreur}")
+        st.sauvegarder(tournoi)
+
+    log.info("Tournoi %s : réservation R%s annulée par %s", tournoi["id"], annulee["id"], interaction.user.id)
+    await envoyer_mp(
+        interaction.client, annulee["capitaine_id"],
+        f"🚫 La place réservée pour **{annulee['nom']}** au tournoi **{tournoi['titre']}** a été annulée par un admin.")
+    await prevenir_promues(interaction.client, tournoi, promues)
+    await mettre_a_jour_annonce(interaction.client, tournoi["id"])
+    texte = f"✅ Réservation `R{annulee['id']}` **{annulee['nom']}** annulée : la place est rendue aux autres équipes."
+    if promues:
+        texte += "\n🎉 Promue(s) depuis la liste d'attente : " + ", ".join(
+            f"`#{e['id']}` **{e['nom']}**" for e in promues)
+    await repondre(interaction, texte)
+
+
+# --------------------------------------------------------------------------- #
 # /tournoi_rl_remove_team
 # --------------------------------------------------------------------------- #
 
@@ -262,13 +369,20 @@ class ConfirmationSuppression(ui.View):
                     f"🛑 Le tournoi **{tournoi['titre']}** ({tournoi['date']}) a été annulé par un admin. "
                     f"L'inscription de ton équipe **{equipe['nom']}** est annulée.",
                 )
+        for reservation in L.reservations_actives(tournoi):
+            await envoyer_mp(
+                interaction.client, reservation["capitaine_id"],
+                f"🛑 Le tournoi **{tournoi['titre']}** ({tournoi['date']}) a été annulé par un admin. "
+                f"La place réservée pour **{reservation['nom']}** est annulée.",
+            )
 
     @ui.button(label="Non", style=discord.ButtonStyle.secondary)
     async def garder(self, interaction: discord.Interaction, _bouton: ui.Button) -> None:
         await interaction.response.edit_message(content="👍 Tournoi conservé.", view=None)
 
 
-COMMANDES = [tournoi_rl, tournoi_rl_modify, tournoi_rl_status, tournoi_rl_remove_team, tournoi_rl_remove]
+COMMANDES = [tournoi_rl, tournoi_rl_modify, tournoi_rl_status, tournoi_rl_reserve, tournoi_rl_unreserve,
+             tournoi_rl_remove_team, tournoi_rl_remove]
 
 
 async def gerer_erreur(interaction: discord.Interaction, erreur: app_commands.AppCommandError) -> None:

@@ -4,9 +4,11 @@
 
 | Commande | Qui | Ce qu'elle fait |
 |---|---|---|
-| `/tournoi_rl titre cashprize joueurs_par_equipe equipes_max date` | admins | Poste l'annonce avec le bouton **S'inscrire** dans le salon. |
+| `/tournoi_rl titre cashprize joueurs_par_equipe equipes_max date [delay]` | admins | Poste l'annonce avec le bouton **S'inscrire** dans le salon. `delay` = minutes avant l'ouverture des inscriptions (0 par défaut, 10080 max), pour avoir le temps de réserver des places. |
 | `/tournoi_rl_modify id [titre] [cashprize] [equipes_max]` | admins | Modifie le titre, le cashprize et/ou le nombre maximum d'équipes (au moins un des trois). L'annonce est mise à jour. |
 | `/tournoi_rl_status id` | tout le monde | Équipes inscrites, joueurs qui n'ont pas validé, liste d'attente (réponse visible par toi seul). |
+| `/tournoi_rl_reserve id capitaine nom duree` | admins | Réserve une place pour l'équipe de `capitaine` (invités, partenaires) pendant `duree` minutes (30 jours max). Le capitaine est prévenu en MP. |
+| `/tournoi_rl_unreserve id reservation` | admins | Annule une place réservée (`Rn` dans `/tournoi_rl_status`) : elle est rendue aux autres équipes. |
 | `/tournoi_rl_remove_team id team_id` | admins | Retire une équipe et fait monter la première équipe de la liste d'attente. |
 | `/tournoi_rl_remove id` | admins | Annule et efface le tournoi (après confirmation) : annonce supprimée, joueurs prévenus en MP, fichier JSON effacé. |
 
@@ -21,13 +23,25 @@ Les `id` et `team_id` sont proposés en autocomplétion. Le `team_id` est le `#n
 4. Les coéquipiers ont **30 minutes** (réglable avec `DELAI_CONFIRMATION_MINUTES` dans `.env`) pour confirmer (heure limite affichée dans les MP et dans `/tournoi_rl_status`). Passé ce délai, le bot désinscrit l'équipe automatiquement (vérification chaque minute, même après un redémarrage) et prévient tous ses joueurs en MP. Les équipes inscrites avant l'ajout de ce délai ne sont pas concernées.
 5. Si un coéquipier refuse, ne confirme pas à temps, si le capitaine annule ou si un admin retire l'équipe, la place est donnée à la première équipe de la liste d'attente, qui est prévenue en MP.
 
-Les données sont dans `data/tournois/<id>.json` (un fichier par tournoi).
+Les données sont dans `data/tournois/<id>.json` (un fichier par tournoi). Champs ajoutés pour l'ouverture différée et les réservations (absents des anciens fichiers, qui restent valables) :
+- `ouverture_inscriptions` : heure d'ouverture, remise à `null` une fois les inscriptions ouvertes ;
+- `reservations` : liste de `{id, nom, capitaine_id, capitaine, statut (active / utilisee / expiree / annulee), cree_par, cree_le, expire_le, equipe_id, terminee_le}` ;
+- `reservation_id` sur une équipe inscrite grâce à une réservation.
+
+## Ouverture différée et places réservées
+
+- Avec `delay` (ex : `/tournoi_rl … delay: 60`), l'annonce est postée tout de suite mais affiche « 🕒 Les inscriptions ouvrent dans 1 heure ». Avant cette heure, le bouton **S'inscrire** répond l'heure d'ouverture. À l'heure dite, le bot met l'annonce à jour tout seul (vérification chaque minute).
+- `/tournoi_rl_reserve` bloque une place libre pour un capitaine précis. Les places réservées sont retirées des places ouvertes à tous : avec `equipes_max = 16` et 2 réservations, seules 14 places partent avant la liste d'attente. L'annonce affiche par exemple `3/16 (+2 réservées)`.
+- Le capitaine réservé s'inscrit avec le bouton **S'inscrire** habituel, **même avant l'ouverture et même si le tournoi est complet** : son équipe prend la place réservée (marquée 🔒 dans `/tournoi_rl_status`). Ses coéquipiers doivent confirmer comme d'habitude, sinon l'équipe est désinscrite et la place va à la liste d'attente.
+- Si le capitaine ne s'est pas inscrit avant l'échéance, la place est rendue automatiquement : la première équipe de la liste d'attente monte et le capitaine est prévenu en MP. Même chose avec `/tournoi_rl_unreserve`.
+- Une réservation ne retire jamais une équipe déjà inscrite : s'il n'y a plus de place libre, augmente d'abord `equipes_max`.
+- Un capitaine ne peut avoir qu'une réservation par tournoi, et pas s'il est déjà dans une équipe.
 
 ## Modifier un tournoi (`/tournoi_rl_modify`)
 
 - Seuls les champs remplis changent. La liste d'attente suit toujours : `equipes_max × 4`.
 - **Augmenter `equipes_max`** : les premières équipes de la liste d'attente montent sur les nouvelles places et sont prévenues en MP. Si le tournoi était complet, le bouton **S'inscrire** redevient cliquable.
-- **Baisser `equipes_max`** : impossible en dessous du nombre d'équipes déjà inscrites (aucune équipe n'est retirée automatiquement). Retire d'abord des équipes avec `/tournoi_rl_remove_team`.
+- **Baisser `equipes_max`** : impossible en dessous du nombre d'équipes déjà inscrites plus les places réservées (aucune équipe n'est retirée automatiquement). Retire d'abord des équipes avec `/tournoi_rl_remove_team` ou des réservations avec `/tournoi_rl_unreserve`.
 - Changer le titre ou le cashprize n'envoie pas de MP : seule l'annonce est mise à jour (les anciens MP gardent l'ancien texte).
 - ⚠️ Une fois le tournoi lancé avec `rl_tournament_manager`, les modifications ne changent plus le tournoi en cours (il a copié le titre et les équipes au lancement). Les équipes promues à ce moment-là ne jouent pas.
 

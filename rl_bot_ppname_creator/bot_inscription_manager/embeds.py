@@ -10,9 +10,25 @@ COULEUR = discord.Colour(0xE67E22)  # orange, comme la bordure de l'annonce
 LIMITE_DESCRIPTION = 4000  # Discord accepte 4096 caractères par description
 
 
+def _horodatage(date_iso: str) -> int:
+    return int(L.lire_date(date_iso).timestamp())
+
+
+def _compteur_inscrites(tournoi: dict) -> str:
+    texte = f"{len(L.equipes_inscrites(tournoi))}/{tournoi['equipes_max']}"
+    nb_reservees = len(L.reservations_actives(tournoi))
+    if nb_reservees:
+        texte += f" (+{nb_reservees} réservée{'s' if nb_reservees > 1 else ''})"
+    return texte
+
+
 def embed_annonce(tournoi: dict) -> discord.Embed:
     if L.est_complet(tournoi):
         description = "🔒 **Complet** (liste d'attente comprise)."
+    elif tournoi.get("ouverture_inscriptions"):
+        horodatage = _horodatage(tournoi["ouverture_inscriptions"])
+        description = (f"🕒 Les inscriptions ouvrent <t:{horodatage}:R> (<t:{horodatage}:t>). "
+                       f"Reviens cliquer sur **S'inscrire** à ce moment-là !")
     else:
         description = "Clique sur **S'inscrire** ci-dessous pour engager ton équipe !"
 
@@ -21,7 +37,7 @@ def embed_annonce(tournoi: dict) -> discord.Embed:
     embed.add_field(name="👥 Format", value=L.format_match(tournoi["joueurs_par_equipe"]))
     embed.add_field(
         name="🎟️ Équipes inscrites",
-        value=f"{len(L.equipes_inscrites(tournoi))}/{tournoi['equipes_max']}",
+        value=_compteur_inscrites(tournoi),
     )
     embed.add_field(name="📅 Date", value=tournoi["date"])
     embed.add_field(
@@ -56,6 +72,8 @@ def _ligne_equipe(equipe: dict, prefixe: str = "") -> str:
     if equipe.get("confirmer_avant") and not L.equipe_confirmee(equipe):
         horodatage = int(L.lire_date(equipe["confirmer_avant"]).timestamp())
         ligne += f" · ⏰ désinscrite <t:{horodatage}:R> sans confirmation"
+    if equipe.get("reservation_id"):
+        ligne += " · 🔒 place réservée"
     return ligne
 
 
@@ -67,10 +85,21 @@ def embeds_status(tournoi: dict) -> list[discord.Embed]:
         f"💰 Cashprize : **{tournoi['cashprize']}**  ·  👥 Format : **{L.format_match(tournoi['joueurs_par_equipe'])}**"
         f"  ·  📅 Date : **{tournoi['date']}**",
         "*✅ = a confirmé · ⏳ = n'a pas encore confirmé · 🎮 = pseudo Rocket League · `#n` = team_id*",
+    ]
+    if tournoi.get("ouverture_inscriptions"):
+        horodatage = _horodatage(tournoi["ouverture_inscriptions"])
+        lignes.append(f"🕒 Inscriptions ouvertes <t:{horodatage}:R> (<t:{horodatage}:f>)")
+    lignes += [
         "",
         f"**🎟️ Équipes inscrites ({len(inscrites)}/{tournoi['equipes_max']})**",
     ]
     lignes += [_ligne_equipe(e) for e in inscrites] or ["*Aucune équipe pour l'instant.*"]
+    reservations = L.reservations_actives(tournoi)
+    if reservations:
+        lignes += ["", f"**🔒 Places réservées ({len(reservations)})**"]
+        lignes += [f"`R{r['id']}` **{r['nom']}** — capitaine {r['capitaine']} · "
+                   f"⌛ rendue <t:{_horodatage(r['expire_le'])}:R> si personne ne s'inscrit"
+                   for r in reservations]
     lignes += ["", f"**⏳ Liste d'attente ({len(attente)}/{tournoi['liste_attente_max']})**"]
     lignes += [_ligne_equipe(e, f"{i}. ") for i, e in enumerate(attente, start=1)] or ["*Vide.*"]
 

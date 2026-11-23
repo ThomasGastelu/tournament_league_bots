@@ -8,7 +8,7 @@ Ce fichier guide Claude (et tout contributeur) dans ce dépôt.
 
 | Dossier | Paquet (`python -m …`) | Rôle |
 |---|---|---|
-| `rl_bot_ppname_creator/` | `bot_inscription_manager` | Inscriptions aux tournois (`/tournoi_rl*`), liste d'attente, confirmations des coéquipiers. Contient aussi le script `generer_pp_names.py` (noms / mots de passe aléatoires de parties privées), que `tournament_manager` n'utilise plus. |
+| `rl_bot_ppname_creator/` | `bot_inscription_manager` | Inscriptions aux tournois (`/tournoi_rl*`), liste d'attente, confirmations des coéquipiers, ouverture différée (`delay`) et places réservées (`/tournoi_rl_reserve`, `/tournoi_rl_unreserve`). Contient aussi le script `generer_pp_names.py` (noms / mots de passe aléatoires de parties privées), que `tournament_manager` n'utilise plus. |
 | `rl_tournament_manager/` | `bot_tournament_manager` | Fait jouer un tournoi inscrit : zones, rounds, MP avec les parties privées, demande des scores aux joueurs (`DELAI_DECLARATION` après le clic « Partie privée créée »), déclarations, classement (`/start_tournament_init id delai_confirmation` crée le salon de discussion et fait valider les participations, obligatoire avant le lancement, `/start_tournament_init_status id` montre qui a validé, `/start_tournament_rl`, `/start_tournament_modify_pp` change la partie privée d'une zone, `/stop_…`, `/reset_…`, `/set_result_…`, `/edit_player_…`). |
 | `rl_bot_mp/` | `bot_mp` | `/mp_all` : envoie un MP à tous les membres du serveur (admins). Indépendant des deux autres. |
 | `rl_bot_ticket/` | `bot_ticket` | Tickets de support : `/ticket_panel` publie le panneau « Support » ; le bouton « 🎫 Créer un ticket » ouvre un salon privé (auteur + `ROLES_STAFF`) selon la catégorie choisie. Indépendant des autres, sans fichier `data/`. |
@@ -86,7 +86,7 @@ Les trois bots suivent le même découpage. Respecter cette séparation :
 
 Spécifique à `bot_ticket` : `tickets.py` (boutons « Créer un ticket », « Problème résolu » (auteur seul) et « Fermer le ticket » en `DynamicItem`, liste des catégories, création / fermeture des salons, `boucle_fermeture_auto` : toutes les 10 min, ferme les tickets où le staff a parlé en dernier depuis `FERMETURE_AUTO_HEURES`, 72 par défaut, relu dans l'historique du salon). Pas de `stockage.py` : l'auteur et la catégorie d'un ticket sont dans le sujet du salon (`ticket:<id>:<catégorie>`). Embeds en bleu `0x5865F2` pour ressembler au modèle du panneau Support.
 
-Spécifique à `bot_inscription_manager` : `inscription.py` (bouton S'inscrire, fiches, boutons Valider / Refuser / Annuler en `DynamicItem`, expiration des inscriptions vérifiée chaque minute).
+Spécifique à `bot_inscription_manager` : `inscription.py` (bouton S'inscrire, fiches, boutons Valider / Refuser / Annuler en `DynamicItem` ; chaque minute, `expirer_inscriptions` désinscrit les équipes non confirmées, rend les réservations échues et met l'annonce à jour à l'ouverture des inscriptions).
 
 Spécifique à `bot_tournament_manager` :
 - `config.py` : lecture et validation du `.env` (`Config`).
@@ -108,7 +108,8 @@ Spécifique à `bot_tournament_manager` :
 
 ## Règles métier à ne pas casser
 
-- **Inscriptions** : liste d'attente = `equipes_max × 4` ; délai de confirmation `DELAI_CONFIRMATION_MINUTES` (30 par défaut), appliqué aux inscriptions faites après redémarrage ; une place libérée va à la première équipe en attente, prévenue en MP ; baisser `equipes_max` sous le nombre d'inscrits est refusé.
+- **Inscriptions** : liste d'attente = `equipes_max × 4` ; délai de confirmation `DELAI_CONFIRMATION_MINUTES` (30 par défaut), appliqué aux inscriptions faites après redémarrage ; une place libérée va à la première équipe en attente, prévenue en MP ; baisser `equipes_max` sous le nombre d'inscrits plus les places réservées est refusé.
+- **Places réservées** : `places_libres = equipes_max − inscrites − réservations actives` ; seul le capitaine désigné peut utiliser sa réservation, même avant l'ouverture (`ouverture_inscriptions`) ou si le tournoi est complet ; une réservation échue ou annulée fait monter la liste d'attente. Les réservations ne sont pas des équipes : `tournament_manager` ne les voit pas.
 - **Tournoi** : une zone par match (`nb_equipes / 2`), zone 1 = basse, dernière = zone haute ⭐ ; gagnant monte, perdant descend ; victoire +1, défaite 0, +3 en zone haute à partir du `golden_round` ; classement : points, victoires, différence de buts, buts marqués.
 - Seules les équipes `inscrite` dont tous les joueurs ont confirmé participent.
 - Score : `source_resultat` = `declarations` (deux équipes d'accord) ou `admin` (`bot` dans les anciens fichiers, quand l'observateur existait) ; `/set_result_tournament_rl` est toujours prioritaire.

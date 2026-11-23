@@ -45,7 +45,7 @@ def test_places_puis_liste_attente_puis_complet():
     with pytest.raises(L.ErreurTournoi, match="complet"):
         inscrire(t, 6)
     with pytest.raises(L.ErreurTournoi, match="complet"):
-        L.verifier_peut_s_inscrire(t, "c6")
+        L.verifier_peut_s_inscrire(t, "c6", T0)
     assert L.position_attente(t, L.trouver_equipe(t, 3)) == 2
 
 
@@ -53,7 +53,7 @@ def test_un_joueur_ne_peut_etre_que_dans_une_equipe():
     t = tournoi()
     inscrire(t, 1)
     with pytest.raises(L.ErreurTournoi, match="déjà dans l'équipe"):
-        L.verifier_peut_s_inscrire(t, "j1a")
+        L.verifier_peut_s_inscrire(t, "j1a", T0)
     with pytest.raises(L.ErreurTournoi, match="J1a.*déjà dans l'équipe"):
         L.inscrire_equipe(t, nom="Autre", capitaine=("c2", "C2"), pseudo_jeu_capitaine="x", coequipiers=[("j1a", "J1a")], maintenant=T0)
 
@@ -135,7 +135,7 @@ def test_refus_annule_l_equipe_libere_les_joueurs_et_promeut():
     assert promues == [e2] and e2["statut"] == L.INSCRITE
     assert e3["statut"] == L.LISTE_ATTENTE and L.position_attente(t, e3) == 1
     # Les joueurs de l'équipe annulée peuvent se réinscrire
-    L.verifier_peut_s_inscrire(t, "c1")
+    L.verifier_peut_s_inscrire(t, "c1", T0)
     with pytest.raises(L.ErreurTournoi, match="annulée"):
         L.confirmer_joueur(t, e1["id"], "c1", "x", T0)
 
@@ -364,7 +364,7 @@ def test_equipe_desinscrite_apres_30_minutes_et_liste_attente_avance():
     assert e1["raison_annulation"] == "délai de confirmation dépassé (J1a)"
     assert promues == [e2] and e2["statut"] == L.INSCRITE
     assert L.expirer_equipes(t, apres(60)) == ([], [])  # e2 est confirmée : jamais désinscrite
-    L.verifier_peut_s_inscrire(t, "c1")  # les joueurs de e1 sont libres
+    L.verifier_peut_s_inscrire(t, "c1", T0)  # les joueurs de e1 sont libres
 
 
 def test_confirmation_refusee_apres_le_delai():

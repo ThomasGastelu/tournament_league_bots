@@ -13,6 +13,12 @@ INSCRITE = "inscrite"
 LISTE_ATTENTE = "liste_attente"
 ANNULEE = "annulee"
 
+# Statuts d'une réservation de place
+RESERVATION_ACTIVE = "active"
+RESERVATION_UTILISEE = "utilisee"
+RESERVATION_EXPIREE = "expiree"
+RESERVATION_ANNULEE = "annulee"
+
 # Statuts d'un joueur dans son équipe
 CONFIRME = "confirme"
 EN_ATTENTE = "en_attente"
@@ -31,6 +37,10 @@ AVERTISSEMENT_PSEUDO_JEU = "⚠️ Exactement le même que dans le jeu, sinon on
 # changer le délai ne touche que les nouvelles inscriptions.
 DELAI_CONFIRMATION_MINUTES = 30
 DELAI_CONFIRMATION_MAX_MINUTES = 7 * 24 * 60  # une semaine
+# Délai avant l'ouverture des inscriptions (option « delay » de /tournoi_rl).
+DELAI_OUVERTURE_MAX_MINUTES = 7 * 24 * 60  # une semaine
+# Durée maximale d'une réservation de place (/tournoi_rl_reserve).
+DUREE_RESERVATION_MAX_MINUTES = 30 * 24 * 60  # 30 jours
 
 
 class ErreurTournoi(Exception):
@@ -53,11 +63,18 @@ def nouveau_tournoi(
     salon_id: str,
     cree_par: str,
     maintenant: str,
+    delai_ouverture_minutes: int = 0,
 ) -> dict:
+    """Nouveau tournoi. Avec `delai_ouverture_minutes` > 0, les inscriptions n'ouvrent
+    qu'après ce délai (« ouverture_inscriptions ») : le temps de réserver des places.
+    """
     if not 1 <= joueurs_par_equipe <= 3:
         raise ErreurTournoi("Le nombre de joueurs par équipe doit être entre 1 et 3.")
     if equipes_max < 1:
         raise ErreurTournoi("Il faut au moins 1 équipe.")
+    if not 0 <= delai_ouverture_minutes <= DELAI_OUVERTURE_MAX_MINUTES:
+        raise ErreurTournoi(
+            f"Le délai avant l'ouverture des inscriptions doit être entre 0 et {DELAI_OUVERTURE_MAX_MINUTES} minutes.")
     return {
         "id": tournoi_id,
         "titre": titre,
@@ -71,6 +88,13 @@ def nouveau_tournoi(
         "message_id": None,
         "cree_par": cree_par,
         "cree_le": maintenant,
+        # Heure d'ouverture des inscriptions ; None = ouvertes. Le bot la remet à None
+        # une fois l'heure passée (et met l'annonce à jour).
+        "ouverture_inscriptions": (
+            (lire_date(maintenant) + timedelta(minutes=delai_ouverture_minutes)).isoformat(timespec="seconds")
+            if delai_ouverture_minutes else None
+        ),
+        "reservations": [],
         "equipes": [],
     }
 
@@ -117,8 +141,15 @@ def equipes_actives(tournoi: dict) -> list[dict]:
     return [e for e in tournoi["equipes"] if e["statut"] != ANNULEE]
 
 
+def reservations_actives(tournoi: dict) -> list[dict]:
+    """Places réservées pas encore utilisées (ni expirées, ni annulées)."""
+    return sorted((r for r in tournoi.get("reservations", []) if r["statut"] == RESERVATION_ACTIVE),
+                  key=lambda r: r["id"])
+
+
 def places_libres(tournoi: dict) -> int:
-    return tournoi["equipes_max"] - len(equipes_inscrites(tournoi))
+    """Places ouvertes à tous : equipes_max moins les équipes inscrites et les places réservées."""
+    return tournoi["equipes_max"] - len(equipes_inscrites(tournoi)) - len(reservations_actives(tournoi))
 
 
 def est_complet(tournoi: dict) -> bool:
@@ -127,6 +158,26 @@ def est_complet(tournoi: dict) -> bool:
         places_libres(tournoi) <= 0
         and len(liste_attente(tournoi)) >= tournoi["liste_attente_max"]
     )
+
+
+def inscriptions_ouvertes(tournoi: dict, maintenant: str) -> bool:
+    ouverture = tournoi.get("ouverture_inscriptions")  # absent : tournoi créé avant l'option « delay »
+    return not ouverture or lire_date(maintenant) >= lire_date(ouverture)
+
+
+def reservation_du_capitaine(tournoi: dict, joueur_id: str) -> dict | None:
+    """Réservation active au nom de ce joueur (il est le seul à pouvoir l'utiliser)."""
+    for reservation in reservations_actives(tournoi):
+        if reservation["capitaine_id"] == joueur_id:
+            return reservation
+    return None
+
+
+def trouver_reservation(tournoi: dict, reservation_id: int) -> dict:
+    for reservation in tournoi.get("reservations", []):
+        if reservation["id"] == reservation_id:
+            return reservation
+    raise ErreurTournoi(f"Aucune réservation R{reservation_id} dans ce tournoi.")
 
 
 def trouver_equipe(tournoi: dict, equipe_id: int) -> dict:
@@ -195,11 +246,23 @@ def delai_depasse(equipe: dict, maintenant: str) -> bool:
 # Inscription
 # --------------------------------------------------------------------------- #
 
-def verifier_peut_s_inscrire(tournoi: dict, joueur_id: str) -> None:
-    """Vérifie, avant d'ouvrir la fiche, que ce joueur peut créer une équipe."""
+def _verifier_ouverture(tournoi: dict, maintenant: str) -> None:
+    if not inscriptions_ouvertes(tournoi, maintenant):
+        horodatage = int(lire_date(tournoi["ouverture_inscriptions"]).timestamp())
+        raise ErreurTournoi(f"Les inscriptions ouvrent <t:{horodatage}:R> (<t:{horodatage}:t>).")
+
+
+def verifier_peut_s_inscrire(tournoi: dict, joueur_id: str, maintenant: str) -> None:
+    """Vérifie, avant d'ouvrir la fiche, que ce joueur peut créer une équipe.
+
+    Le capitaine d'une place réservée peut s'inscrire avant l'ouverture et même si le tournoi est complet.
+    """
     equipe = equipe_du_joueur(tournoi, joueur_id)
     if equipe is not None:
         raise ErreurTournoi(f"Tu es déjà dans l'équipe **{equipe['nom']}** pour ce tournoi.")
+    if reservation_du_capitaine(tournoi, joueur_id) is not None:
+        return
+    _verifier_ouverture(tournoi, maintenant)
     if est_complet(tournoi):
         raise ErreurTournoi("Ce tournoi est complet, liste d'attente comprise.")
 
@@ -228,6 +291,8 @@ def inscrire_equipe(
     L'équipe obtient sa place (ou sa position en liste d'attente) dès
     maintenant ; les coéquipiers doivent ensuite valider en donnant
     leur pseudo Rocket League, dans les DELAI_CONFIRMATION_MINUTES minutes.
+    Si le capitaine a une place réservée, l'équipe prend cette place
+    (même avant l'ouverture des inscriptions) et la réservation est « utilisée ».
     """
     pseudo_jeu_capitaine = nettoyer_pseudo_jeu(pseudo_jeu_capitaine)
     nom = nom.strip()
@@ -254,12 +319,17 @@ def inscrire_equipe(
         if equipe is not None:
             raise ErreurTournoi(f"**{pseudo}** est déjà dans l'équipe **{equipe['nom']}** pour ce tournoi.")
 
-    if places_libres(tournoi) > 0:
+    reservation = reservation_du_capitaine(tournoi, capitaine_id)
+    if reservation is not None:
         statut = INSCRITE
-    elif len(liste_attente(tournoi)) < tournoi["liste_attente_max"]:
-        statut = LISTE_ATTENTE
     else:
-        raise ErreurTournoi("Ce tournoi est complet, liste d'attente comprise.")
+        _verifier_ouverture(tournoi, maintenant)
+        if places_libres(tournoi) > 0:
+            statut = INSCRITE
+        elif len(liste_attente(tournoi)) < tournoi["liste_attente_max"]:
+            statut = LISTE_ATTENTE
+        else:
+            raise ErreurTournoi("Ce tournoi est complet, liste d'attente comprise.")
 
     equipe = {
         "id": len(tournoi["equipes"]) + 1,  # les équipes ne sont jamais supprimées
@@ -279,6 +349,11 @@ def inscrire_equipe(
                      "statut": CONFIRME}]
         + [{"id": i, "pseudo": p, "pseudo_jeu": None, "statut": EN_ATTENTE} for i, p in coequipiers],
     }
+    if reservation is not None:
+        equipe["reservation_id"] = reservation["id"]
+        reservation["statut"] = RESERVATION_UTILISEE
+        reservation["equipe_id"] = equipe["id"]
+        reservation["terminee_le"] = maintenant
     tournoi["equipes"].append(equipe)
     return equipe
 
@@ -374,6 +449,94 @@ def promouvoir_liste_attente(tournoi: dict) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# Places réservées et ouverture des inscriptions
+# --------------------------------------------------------------------------- #
+
+def reserver_place(
+    tournoi: dict,
+    *,
+    nom: str,
+    capitaine: tuple[str, str],
+    duree_minutes: int,
+    cree_par: str,
+    maintenant: str,
+) -> dict:
+    """Bloque une place pour l'équipe de `capitaine` (tuple (id, pseudo Discord)).
+
+    Seul ce capitaine peut l'utiliser, en s'inscrivant avec le bouton habituel,
+    avant `duree_minutes`. Passé ce délai, la place est rendue (expirer_reservations).
+    Une réservation prend une place libre : elle ne retire jamais une équipe inscrite.
+    """
+    nom = nom.strip()
+    if not nom:
+        raise ErreurTournoi("Le nom de la réservation ne peut pas être vide.")
+    if len(nom) > LONGUEUR_MAX_NOM_EQUIPE:
+        raise ErreurTournoi(f"Le nom de la réservation fait au maximum {LONGUEUR_MAX_NOM_EQUIPE} caractères.")
+    if not 1 <= duree_minutes <= DUREE_RESERVATION_MAX_MINUTES:
+        raise ErreurTournoi(f"La durée de la réservation doit être entre 1 et {DUREE_RESERVATION_MAX_MINUTES} minutes.")
+    capitaine_id, pseudo = capitaine
+    equipe = equipe_du_joueur(tournoi, capitaine_id)
+    if equipe is not None:
+        raise ErreurTournoi(f"**{pseudo}** est déjà dans l'équipe **{equipe['nom']}** pour ce tournoi.")
+    if reservation_du_capitaine(tournoi, capitaine_id) is not None:
+        raise ErreurTournoi(f"**{pseudo}** a déjà une place réservée dans ce tournoi.")
+    if places_libres(tournoi) <= 0:
+        raise ErreurTournoi(
+            "Plus aucune place libre à réserver. Augmente `equipes_max` avec `/tournoi_rl_modify` "
+            "ou retire une équipe avec `/tournoi_rl_remove_team`.")
+
+    tournoi.setdefault("reservations", [])
+    reservation = {
+        "id": len(tournoi["reservations"]) + 1,  # les réservations ne sont jamais supprimées
+        "nom": nom,
+        "capitaine_id": capitaine_id,
+        "capitaine": pseudo,
+        "statut": RESERVATION_ACTIVE,
+        "cree_par": cree_par,
+        "cree_le": maintenant,
+        "expire_le": (lire_date(maintenant) + timedelta(minutes=duree_minutes)).isoformat(timespec="seconds"),
+        "equipe_id": None,
+        "terminee_le": None,
+    }
+    tournoi["reservations"].append(reservation)
+    return reservation
+
+
+def annuler_reservation(tournoi: dict, reservation_id: int, maintenant: str) -> tuple[dict, list[dict]]:
+    """Rend une place réservée. Retourne (réservation, équipes promues de la liste d'attente)."""
+    reservation = trouver_reservation(tournoi, reservation_id)
+    if reservation["statut"] != RESERVATION_ACTIVE:
+        raise ErreurTournoi(f"La réservation R{reservation_id} n'est plus active ({reservation['statut']}).")
+    reservation["statut"] = RESERVATION_ANNULEE
+    reservation["terminee_le"] = maintenant
+    return reservation, promouvoir_liste_attente(tournoi)
+
+
+def expirer_reservations(tournoi: dict, maintenant: str) -> tuple[list[dict], list[dict]]:
+    """Rend les places réservées dont l'échéance est passée.
+
+    Retourne (réservations expirées, équipes promues de la liste d'attente).
+    """
+    expirees = [r for r in reservations_actives(tournoi) if lire_date(maintenant) >= lire_date(r["expire_le"])]
+    for reservation in expirees:
+        reservation["statut"] = RESERVATION_EXPIREE
+        reservation["terminee_le"] = maintenant
+    promues = promouvoir_liste_attente(tournoi) if expirees else []
+    return expirees, promues
+
+
+def ouvrir_inscriptions(tournoi: dict, maintenant: str) -> bool:
+    """Marque les inscriptions comme ouvertes une fois l'heure passée.
+
+    Retourne True la première fois (l'annonce doit alors être mise à jour).
+    """
+    if tournoi.get("ouverture_inscriptions") and inscriptions_ouvertes(tournoi, maintenant):
+        tournoi["ouverture_inscriptions"] = None
+        return True
+    return False
+
+
+# --------------------------------------------------------------------------- #
 # Modification par un admin
 # --------------------------------------------------------------------------- #
 
@@ -417,13 +580,16 @@ def modifier_tournoi(
         if not 1 <= equipes_max <= EQUIPES_MAX_LIMITE:
             raise ErreurTournoi(f"Le nombre maximum d'équipes doit être entre 1 et {EQUIPES_MAX_LIMITE}.")
         nb_inscrites = len(equipes_inscrites(tournoi))
-        if equipes_max < nb_inscrites:
+        nb_reservees = len(reservations_actives(tournoi))
+        if equipes_max < nb_inscrites + nb_reservees:
+            detail = f" et {nb_reservees} place(s) réservée(s)" if nb_reservees else ""
             raise ErreurTournoi(
-                f"{nb_inscrites} équipes sont déjà inscrites : equipes_max ne peut pas descendre "
-                f"en dessous de {nb_inscrites}. Retire d'abord "
-                f"{nb_inscrites - equipes_max} équipe(s) avec `/tournoi_rl_remove_team`.")
+                f"{nb_inscrites} équipes sont déjà inscrites{detail} : equipes_max ne peut pas descendre "
+                f"en dessous de {nb_inscrites + nb_reservees}. Retire d'abord "
+                f"{nb_inscrites + nb_reservees - equipes_max} équipe(s) avec `/tournoi_rl_remove_team`"
+                + (" ou des réservations avec `/tournoi_rl_unreserve`." if nb_reservees else "."))
         # Taille de la liste d'attente une fois les places libres remplies.
-        attente_apres = max(0, len(liste_attente(tournoi)) - (equipes_max - nb_inscrites))
+        attente_apres = max(0, len(liste_attente(tournoi)) - (equipes_max - nb_inscrites - nb_reservees))
         attente_max = equipes_max * MULTIPLICATEUR_LISTE_ATTENTE
         if attente_apres > attente_max:
             raise ErreurTournoi(

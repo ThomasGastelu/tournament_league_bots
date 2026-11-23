@@ -66,9 +66,17 @@ def pseudos(joueurs: list[dict]) -> str:
     return ", ".join(f"**{j['pseudo']}**" for j in joueurs)
 
 
+def horaire(date_iso: str) -> str:
+    """Heure affichée par Discord dans le fuseau de chaque joueur, avec le temps restant."""
+    horodatage = int(L.lire_date(date_iso).timestamp())
+    return f"<t:{horodatage}:f> (<t:{horodatage}:R>)"
+
+
 def texte_placement(tournoi: dict, equipe: dict) -> str:
     if equipe["statut"] == L.INSCRITE:
-        return f"🎟️ Place obtenue : {len(L.equipes_inscrites(tournoi))}/{tournoi['equipes_max']} équipes inscrites."
+        reservee = " (place réservée)" if equipe.get("reservation_id") else ""
+        return (f"🎟️ Place obtenue{reservee} : {len(L.equipes_inscrites(tournoi))}/{tournoi['equipes_max']} "
+                f"équipes inscrites.")
     position = L.position_attente(tournoi, equipe)
     return (f"⏳ Le tournoi est plein : l'équipe est en **liste d'attente** "
             f"(position {position}/{tournoi['liste_attente_max']}).")
@@ -92,7 +100,8 @@ def texte_attente_validation(equipe: dict) -> str:
 def vue_annonce(tournoi: dict) -> ui.View:
     vue = ui.View(timeout=None)
     bouton = BoutonInscription(tournoi["id"])
-    bouton.item.disabled = L.est_complet(tournoi)
+    # Les capitaines des places réservées doivent pouvoir cliquer même si le tournoi est complet.
+    bouton.item.disabled = L.est_complet(tournoi) and not L.reservations_actives(tournoi)
     vue.add_item(bouton)
     return vue
 
@@ -146,7 +155,7 @@ class BoutonInscription(ui.DynamicItem[ui.Button], template=r"rl:inscr:(?P<t>\d+
         if tournoi is None:
             return await repondre(interaction, "❌ Ce tournoi n'existe plus.")
         try:
-            L.verifier_peut_s_inscrire(tournoi, str(interaction.user.id))
+            L.verifier_peut_s_inscrire(tournoi, str(interaction.user.id), maintenant())
         except L.ErreurTournoi as erreur:
             return await repondre(interaction, f"❌ {erreur}")
         await interaction.response.send_modal(FicheInscription(tournoi))
@@ -484,9 +493,13 @@ async def apres_annulation(
 
 
 async def expirer_inscriptions(client: discord.Client) -> int:
-    """Désinscrit les équipes dont les coéquipiers n'ont pas confirmé à temps.
+    """Échéances vérifiées chaque minute par le bot.
 
-    Appelée chaque minute par le bot. Retourne le nombre d'équipes désinscrites.
+    - désinscrit les équipes dont les coéquipiers n'ont pas confirmé à temps ;
+    - rend les places réservées non utilisées avant leur échéance ;
+    - met l'annonce à jour quand les inscriptions ouvrent (option « delay » de /tournoi_rl).
+
+    Retourne le nombre d'équipes désinscrites.
     """
     st: Stockage = client.stockage  # type: ignore[attr-defined]
     total = 0
@@ -496,10 +509,25 @@ async def expirer_inscriptions(client: discord.Client) -> int:
             tournoi = st.charger(tournoi_id)
             if tournoi is None:
                 continue
-            expirees, promues = L.expirer_equipes(tournoi, maintenant())
-            if not expirees:
+            instant = maintenant()
+            expirees, promues = L.expirer_equipes(tournoi, instant)
+            reservations_expirees, promues_reservations = L.expirer_reservations(tournoi, instant)
+            promues += promues_reservations
+            ouverture = L.ouvrir_inscriptions(tournoi, instant)
+            if not (expirees or reservations_expirees or ouverture):
                 continue
             st.sauvegarder(tournoi)
+
+        if ouverture:
+            log.info("Tournoi %s : inscriptions ouvertes", tournoi_id)
+        for reservation in reservations_expirees:
+            log.info("Tournoi %s : réservation R%s %s expirée", tournoi_id, reservation["id"], reservation["nom"])
+            await envoyer_mp(
+                client, reservation["capitaine_id"],
+                f"⌛ La place réservée pour **{reservation['nom']}** au tournoi **{tournoi['titre']}** a expiré : "
+                f"elle est rendue aux autres équipes. Tu peux encore t'inscrire avec le bouton **S'inscrire** "
+                f"de l'annonce s'il reste de la place.",
+            )
 
         total += len(expirees)
         for equipe in expirees:
@@ -518,6 +546,18 @@ async def expirer_inscriptions(client: discord.Client) -> int:
         await prevenir_promues(client, tournoi, promues)
         await mettre_a_jour_annonce(client, tournoi_id)
     return total
+
+
+def texte_reservation(tournoi: dict, reservation: dict) -> str:
+    """MP envoyé au capitaine d'une place réservée."""
+    lien = f"https://discord.com/channels/{tournoi['serveur_id']}/{tournoi['salon_id']}/{tournoi['message_id']}"
+    return (
+        f"🔒 Une place t'est réservée pour l'équipe **{reservation['nom']}** au tournoi **{tournoi['titre']}** "
+        f"({L.format_match(tournoi['joueurs_par_equipe'])}, {tournoi['date']}, cashprize {tournoi['cashprize']}).\n"
+        f"Inscris ton équipe avec le bouton **S'inscrire** de l'annonce ({lien}) "
+        f"avant {horaire(reservation['expire_le'])}, sinon la place sera rendue aux autres équipes. "
+        f"Tu peux le faire dès maintenant, même si les inscriptions ne sont pas encore ouvertes."
+    )
 
 
 async def prevenir_promues(
