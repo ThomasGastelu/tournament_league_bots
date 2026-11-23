@@ -194,7 +194,7 @@ def test_delay_puis_reservation_puis_ouverture(monde):
     assert "Le capitaine a été prévenu en MP" in inter.dernier_texte()
     assert "Une place t'est réservée pour l'équipe **Partenaire Tomato**" in j["Thomas"].mp[-1]
     assert "https://discord.com/channels/1/2/777" in j["Thomas"].mp[-1]
-    assert client.salon.annonce.editions[-1]["embed"].fields[2].value == "0/2 (+1 réservée)"
+    assert client.salon.annonce.editions[-1]["embed"].fields[2].value == "0/2"  # places réservées non affichées
 
     # Status : la réservation et l'heure d'ouverture apparaissent.
     inter = FausseInteraction(client, j["Nina"])

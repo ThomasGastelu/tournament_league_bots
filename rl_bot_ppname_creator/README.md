@@ -31,7 +31,7 @@ Les données sont dans `data/tournois/<id>.json` (un fichier par tournoi). Champ
 ## Ouverture différée et places réservées
 
 - Avec `delay` (ex : `/tournoi_rl … delay: 60`), l'annonce est postée tout de suite mais affiche « 🕒 Les inscriptions ouvrent dans 1 heure ». Avant cette heure, le bouton **S'inscrire** répond l'heure d'ouverture. À l'heure dite, le bot met l'annonce à jour tout seul (vérification chaque minute).
-- `/tournoi_rl_reserve` bloque une place libre pour un capitaine précis. Les places réservées sont retirées des places ouvertes à tous : avec `equipes_max = 16` et 2 réservations, seules 14 places partent avant la liste d'attente. L'annonce affiche par exemple `3/16 (+2 réservées)`.
+- `/tournoi_rl_reserve` bloque une place libre pour un capitaine précis. Les places réservées sont retirées des places ouvertes à tous : avec `equipes_max = 16` et 2 réservations, seules 14 places partent avant la liste d'attente. L'annonce n'affiche pas les places réservées (compteur `3/16`) : elles sont listées dans `/tournoi_rl_status`.
 - Le capitaine réservé s'inscrit avec le bouton **S'inscrire** habituel, **même avant l'ouverture et même si le tournoi est complet** : son équipe prend la place réservée (marquée 🔒 dans `/tournoi_rl_status`). Ses coéquipiers doivent confirmer comme d'habitude, sinon l'équipe est désinscrite et la place va à la liste d'attente.
 - Si le capitaine ne s'est pas inscrit avant l'échéance, la place est rendue automatiquement : la première équipe de la liste d'attente monte et le capitaine est prévenu en MP. Même chose avec `/tournoi_rl_unreserve`.
 - Une réservation ne retire jamais une équipe déjà inscrite : s'il n'y a plus de place libre, augmente d'abord `equipes_max`.

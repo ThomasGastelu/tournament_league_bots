@@ -15,11 +15,8 @@ def _horodatage(date_iso: str) -> int:
 
 
 def _compteur_inscrites(tournoi: dict) -> str:
-    texte = f"{len(L.equipes_inscrites(tournoi))}/{tournoi['equipes_max']}"
-    nb_reservees = len(L.reservations_actives(tournoi))
-    if nb_reservees:
-        texte += f" (+{nb_reservees} réservée{'s' if nb_reservees > 1 else ''})"
-    return texte
+    # Les places réservées ne sont pas affichées sur l'annonce (seulement dans /tournoi_rl_status).
+    return f"{len(L.equipes_inscrites(tournoi))}/{tournoi['equipes_max']}"
 
 
 def embed_annonce(tournoi: dict) -> discord.Embed:
