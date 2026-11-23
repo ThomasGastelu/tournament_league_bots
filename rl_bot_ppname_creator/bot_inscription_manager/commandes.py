@@ -21,8 +21,12 @@ log = logging.getLogger(__name__)
 # --------------------------------------------------------------------------- #
 
 async def autocomplete_tournoi(interaction: discord.Interaction, actuel: str) -> list[app_commands.Choice[str]]:
+    try:
+        tournois = await stockage(interaction).lister(str(interaction.guild_id))
+    except L.ErreurTournoi:
+        return []
     choix = []
-    for tournoi in stockage(interaction).lister(str(interaction.guild_id)):
+    for tournoi in tournois:
         nom = f"{tournoi['titre']} — {tournoi['date']} ({tournoi['id']})"
         if actuel.lower() in nom.lower():
             choix.append(app_commands.Choice(name=nom[:100], value=tournoi["id"]))
@@ -31,9 +35,18 @@ async def autocomplete_tournoi(interaction: discord.Interaction, actuel: str) ->
     return choix
 
 
-async def autocomplete_equipe(interaction: discord.Interaction, actuel: str) -> list[app_commands.Choice[int]]:
+async def _tournoi_de_l_autocompletion(interaction: discord.Interaction) -> dict | None:
     tournoi_id = getattr(interaction.namespace, "id", None)
-    tournoi = stockage(interaction).charger(str(tournoi_id)) if tournoi_id else None
+    if not tournoi_id:
+        return None
+    try:
+        return await stockage(interaction).lire(str(tournoi_id).strip())
+    except L.ErreurTournoi:
+        return None
+
+
+async def autocomplete_equipe(interaction: discord.Interaction, actuel: str) -> list[app_commands.Choice[int]]:
+    tournoi = await _tournoi_de_l_autocompletion(interaction)
     if tournoi is None:
         return []
     choix = []
@@ -46,8 +59,7 @@ async def autocomplete_equipe(interaction: discord.Interaction, actuel: str) -> 
 
 
 async def autocomplete_reservation(interaction: discord.Interaction, actuel: str) -> list[app_commands.Choice[int]]:
-    tournoi_id = getattr(interaction.namespace, "id", None)
-    tournoi = stockage(interaction).charger(str(tournoi_id)) if tournoi_id else None
+    tournoi = await _tournoi_de_l_autocompletion(interaction)
     if tournoi is None:
         return []
     choix = []
@@ -58,9 +70,16 @@ async def autocomplete_reservation(interaction: discord.Interaction, actuel: str
     return choix[:25]
 
 
-def tournoi_du_serveur(interaction: discord.Interaction, tournoi_id: str) -> dict | None:
-    tournoi = stockage(interaction).charger(tournoi_id.strip())
+async def tournoi_du_serveur(interaction: discord.Interaction, tournoi_id: str) -> dict | None:
+    """Le tournoi s'il existe et appartient à ce serveur. Sinon, répond à l'admin et renvoie None."""
+    tournoi_id = tournoi_id.strip()
+    try:
+        tournoi = await stockage(interaction).lire(tournoi_id)
+    except L.ErreurTournoi as erreur:
+        await repondre(interaction, f"❌ {erreur}")
+        return None
     if tournoi is None or tournoi["serveur_id"] != str(interaction.guild_id):
+        await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
         return None
     return tournoi
 
@@ -105,7 +124,15 @@ async def tournoi_rl(
         return await repondre(interaction, "❌ Je n'ai pas la permission d'envoyer des messages dans ce salon.")
 
     tournoi["message_id"] = str(message.id)
-    stockage(interaction).sauvegarder(tournoi)
+    try:
+        tournoi = await stockage(interaction).creer(tournoi)
+    except L.ErreurTournoi as erreur:
+        # Sans tournoi enregistré, l'annonce ne servirait à rien : on la retire.
+        try:
+            await message.delete()
+        except discord.HTTPException as erreur_suppression:
+            log.warning("Annonce %s non supprimée : %s", message.id, erreur_suppression)
+        return await repondre(interaction, f"❌ Tournoi non créé : {erreur}")
     texte = f"✅ Tournoi **{titre}** créé. ID : `{tournoi['id']}`"
     if tournoi["ouverture_inscriptions"]:
         texte += (f"\n🕒 Les inscriptions ouvrent {horaire(tournoi['ouverture_inscriptions'])}. "
@@ -158,24 +185,19 @@ async def tournoi_rl_modify(
     equipes_max: app_commands.Range[int, 1, L.EQUIPES_MAX_LIMITE] | None = None,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
-    st = stockage(interaction)
-    tournoi_id = tournoi_id.strip()
-    async with st.verrou(tournoi_id):
-        tournoi = tournoi_du_serveur(interaction, tournoi_id)
-        if tournoi is None:
-            return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
-        try:
-            changements, promues = L.modifier_tournoi(
-                tournoi, titre=titre, cashprize=cashprize, equipes_max=equipes_max)
-        except L.ErreurTournoi as erreur:
-            return await repondre(interaction, f"❌ {erreur}")
-        if not changements:
-            return await repondre(interaction, "ℹ️ Rien à modifier : ces valeurs sont déjà celles du tournoi.")
-        st.sauvegarder(tournoi)
+    tournoi = await tournoi_du_serveur(interaction, tournoi_id)
+    if tournoi is None:
+        return
+    try:
+        tournoi, changements, promues = await stockage(interaction).modifier(
+            tournoi["id"], titre=titre, cashprize=cashprize, equipes_max=equipes_max)
+    except L.ErreurTournoi as erreur:
+        return await repondre(interaction, f"❌ {erreur}")
+    if not changements:
+        return await repondre(interaction, "ℹ️ Rien à modifier : ces valeurs sont déjà celles du tournoi.")
 
     log.info("Tournoi %s modifié par %s : %s", tournoi["id"], interaction.user.id,
              ", ".join(f"{c}: {a!r} -> {n!r}" for c, a, n in changements))
-    # Hors du verrou : mettre_a_jour_annonce le reprend (il n'est pas réentrant).
     annonce_ok = await mettre_a_jour_annonce(interaction.client, tournoi["id"])
     await prevenir_promues(interaction.client, tournoi, promues, "De nouvelles places ont été ouvertes")
     await repondre(interaction, texte_modification(tournoi, changements, promues, annonce_ok))
@@ -191,9 +213,9 @@ async def tournoi_rl_modify(
 @app_commands.autocomplete(tournoi_id=autocomplete_tournoi)
 @app_commands.guild_only()
 async def tournoi_rl_status(interaction: discord.Interaction, tournoi_id: str) -> None:
-    tournoi = tournoi_du_serveur(interaction, tournoi_id)
+    tournoi = await tournoi_du_serveur(interaction, tournoi_id)
     if tournoi is None:
-        return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
+        return
     # Un embed par message : Discord limite à 6000 caractères par message.
     for embed in embeds_status(tournoi):
         await repondre(interaction, None, embed=embed)
@@ -225,19 +247,15 @@ async def tournoi_rl_reserve(
     await interaction.response.defer(ephemeral=True, thinking=True)
     if capitaine.bot:
         return await repondre(interaction, f"❌ **{capitaine.display_name}** est un bot.")
-    st = stockage(interaction)
-    tournoi_id = tournoi_id.strip()
-    async with st.verrou(tournoi_id):
-        tournoi = tournoi_du_serveur(interaction, tournoi_id)
-        if tournoi is None:
-            return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
-        try:
-            reservation = L.reserver_place(
-                tournoi, nom=nom, capitaine=(str(capitaine.id), capitaine.display_name), duree_minutes=duree,
-                cree_par=str(interaction.user.id), maintenant=maintenant())
-        except L.ErreurTournoi as erreur:
-            return await repondre(interaction, f"❌ {erreur}")
-        st.sauvegarder(tournoi)
+    tournoi = await tournoi_du_serveur(interaction, tournoi_id)
+    if tournoi is None:
+        return
+    try:
+        tournoi, reservation = await stockage(interaction).reserver(
+            tournoi["id"], nom=nom, capitaine=(str(capitaine.id), capitaine.display_name), duree_minutes=duree,
+            cree_par=str(interaction.user.id), maintenant=maintenant())
+    except L.ErreurTournoi as erreur:
+        return await repondre(interaction, f"❌ {erreur}")
 
     log.info("Tournoi %s : place R%s réservée pour %s (%s) par %s jusqu'à %s", tournoi["id"], reservation["id"],
              reservation["nom"], capitaine.id, interaction.user.id, reservation["expire_le"])
@@ -260,17 +278,14 @@ async def tournoi_rl_reserve(
 @app_commands.default_permissions(manage_guild=True)
 async def tournoi_rl_unreserve(interaction: discord.Interaction, tournoi_id: str, reservation: int) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
-    st = stockage(interaction)
-    tournoi_id = tournoi_id.strip()
-    async with st.verrou(tournoi_id):
-        tournoi = tournoi_du_serveur(interaction, tournoi_id)
-        if tournoi is None:
-            return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
-        try:
-            annulee, promues = L.annuler_reservation(tournoi, reservation, maintenant())
-        except L.ErreurTournoi as erreur:
-            return await repondre(interaction, f"❌ {erreur}")
-        st.sauvegarder(tournoi)
+    tournoi = await tournoi_du_serveur(interaction, tournoi_id)
+    if tournoi is None:
+        return
+    try:
+        tournoi, annulee, promues = await stockage(interaction).annuler_reservation(
+            tournoi["id"], reservation, maintenant())
+    except L.ErreurTournoi as erreur:
+        return await repondre(interaction, f"❌ {erreur}")
 
     log.info("Tournoi %s : réservation R%s annulée par %s", tournoi["id"], annulee["id"], interaction.user.id)
     await envoyer_mp(
@@ -297,18 +312,14 @@ async def tournoi_rl_unreserve(interaction: discord.Interaction, tournoi_id: str
 @app_commands.default_permissions(manage_guild=True)
 async def tournoi_rl_remove_team(interaction: discord.Interaction, tournoi_id: str, team_id: int) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
-    st = stockage(interaction)
-    tournoi_id = tournoi_id.strip()
-    async with st.verrou(tournoi_id):
-        tournoi = tournoi_du_serveur(interaction, tournoi_id)
-        if tournoi is None:
-            return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
-        try:
-            equipe, promues = L.annuler_equipe(
-                tournoi, team_id, f"retirée par {interaction.user.display_name}", maintenant())
-        except L.ErreurTournoi as erreur:
-            return await repondre(interaction, f"❌ {erreur}")
-        st.sauvegarder(tournoi)
+    tournoi = await tournoi_du_serveur(interaction, tournoi_id)
+    if tournoi is None:
+        return
+    try:
+        tournoi, equipe, promues = await stockage(interaction).annuler_equipe(
+            tournoi["id"], team_id, f"retirée par {interaction.user.display_name}", maintenant())
+    except L.ErreurTournoi as erreur:
+        return await repondre(interaction, f"❌ {erreur}")
 
     await apres_annulation(
         interaction.client, tournoi, equipe, promues,
@@ -332,9 +343,9 @@ async def tournoi_rl_remove_team(interaction: discord.Interaction, tournoi_id: s
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_guild=True)
 async def tournoi_rl_remove(interaction: discord.Interaction, tournoi_id: str) -> None:
-    tournoi = tournoi_du_serveur(interaction, tournoi_id)
+    tournoi = await tournoi_du_serveur(interaction, tournoi_id)
     if tournoi is None:
-        return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
+        return
     nb_equipes = len(L.equipes_actives(tournoi))
     await repondre(
         interaction,
@@ -352,12 +363,12 @@ class ConfirmationSuppression(ui.View):
 
     @ui.button(label="Oui, effacer le tournoi", style=discord.ButtonStyle.danger)
     async def confirmer(self, interaction: discord.Interaction, _bouton: ui.Button) -> None:
-        st = stockage(interaction)
-        async with st.verrou(self.tournoi_id):
-            tournoi = tournoi_du_serveur(interaction, self.tournoi_id)
-            if tournoi is None:
-                return await interaction.response.edit_message(content="❌ Ce tournoi n'existe déjà plus.", view=None)
-            st.supprimer(self.tournoi_id)
+        try:
+            tournoi = await stockage(interaction).supprimer(self.tournoi_id)
+        except L.ErreurTournoi as erreur:
+            return await interaction.response.edit_message(content=f"❌ {erreur}", view=None)
+        if tournoi is None or tournoi["serveur_id"] != str(interaction.guild_id):
+            return await interaction.response.edit_message(content="❌ Ce tournoi n'existe déjà plus.", view=None)
 
         await interaction.response.edit_message(
             content=f"🛑 Tournoi **{tournoi['titre']}** annulé et effacé.", view=None)
@@ -386,8 +397,13 @@ COMMANDES = [tournoi_rl, tournoi_rl_modify, tournoi_rl_status, tournoi_rl_reserv
 
 
 async def gerer_erreur(interaction: discord.Interaction, erreur: app_commands.AppCommandError) -> None:
-    log.exception("Erreur dans une commande", exc_info=erreur)
+    origine = getattr(erreur, "original", erreur)
+    if isinstance(origine, L.ErreurTournoi):  # ex : serveur des tournois injoignable
+        texte = f"❌ {origine}"
+    else:
+        log.exception("Erreur dans une commande", exc_info=erreur)
+        texte = "❌ Une erreur inattendue est survenue."
     try:
-        await repondre(interaction, "❌ Une erreur inattendue est survenue.")
+        await repondre(interaction, texte)
     except discord.HTTPException:
         pass

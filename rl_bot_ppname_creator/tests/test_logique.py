@@ -171,18 +171,18 @@ def test_stockage_aller_retour(tmp_path):
     assert not list(tmp_path.glob("*.tmp"))
     assert s.charger("999") is None
     assert s.charger("../secret") is None
-    assert [x["id"] for x in s.lister("1")] == [t["id"]]
-    assert s.lister("autre_serveur") == []
-    assert s.supprimer(t["id"]) is True
-    assert s.charger(t["id"]) is None and s.supprimer(t["id"]) is False
-    assert s.supprimer("../secret") is False
+    assert [x["id"] for x in s.tous("1")] == [t["id"]]
+    assert s.tous("autre_serveur") == []
+    assert s.effacer(t["id"]) is True
+    assert s.charger(t["id"]) is None and s.effacer(t["id"]) is False
+    assert s.effacer("../secret") is False
 
 
 def test_stockage_ignore_fichier_abime(tmp_path):
     s = Stockage(tmp_path)
     (tmp_path / "123.json").write_text("{pas du json", encoding="utf-8")
     s.sauvegarder(tournoi())
-    assert len(s.lister()) == 1
+    assert len(s.tous()) == 1
     json.loads((tmp_path / "1544015944353976341.json").read_text(encoding="utf-8"))
 
 
@@ -202,7 +202,7 @@ def test_ancien_fichier_sans_capitaine_est_complete(tmp_path):
     charge = s.charger(t["id"])
     assert charge["equipes"][0]["capitaine"] == {"pseudo": "C1", "pseudo_jeu": "C1_RL"}
     assert list(charge["equipes"][0]).index("capitaine") == list(e).index("capitaine_id") + 1
-    assert s.lister()[0]["equipes"][0]["capitaine"]["pseudo"] == "C1"
+    assert s.tous()[0]["equipes"][0]["capitaine"]["pseudo"] == "C1"
     assert L.completer_capitaines(charge) is False
 
 

@@ -16,14 +16,15 @@ from dotenv import load_dotenv
 from . import logique as L
 from .commandes import COMMANDES, gerer_erreur
 from .inscription import BoutonAnnuler, BoutonInscription, BoutonRefuser, BoutonValider, expirer_inscriptions
-from .stockage import Stockage
+from .stockage import StockageFichiers
+from .stockage_api import StockageAPI
 
 RACINE = Path(__file__).resolve().parent.parent
 log = logging.getLogger("inscription_manager")
 
 
 class BotTournoi(discord.Client):
-    def __init__(self, stockage: Stockage, serveur_id: int | None) -> None:
+    def __init__(self, stockage: StockageFichiers | StockageAPI, serveur_id: int | None) -> None:
         # Intents par défaut : pas besoin des intents privilégiés.
         super().__init__(intents=discord.Intents.default())
         self.stockage = stockage
@@ -47,7 +48,19 @@ class BotTournoi(discord.Client):
         log.info("Commandes enregistrées : %s", ", ".join(f"/{c.name}" for c in commandes))
         log.info("Délai de confirmation des coéquipiers : %s minutes", L.DELAI_CONFIRMATION_MINUTES)
 
+        if self.serveur_id and isinstance(self.stockage, StockageAPI):
+            # tournament_manager lit les copies JSON : on les remet à jour depuis la base au démarrage.
+            try:
+                nombre = await self.stockage.rafraichir_copies(str(self.serveur_id))
+                log.info("Copies JSON de %s tournoi(s) mises à jour depuis la base", nombre)
+            except L.ErreurTournoi as erreur:
+                log.warning("Copies JSON non mises à jour au démarrage : %s", erreur)
+
         self.verifier_delais.start()
+
+    async def close(self) -> None:
+        await self.stockage.fermer()
+        await super().close()
 
     async def on_ready(self) -> None:
         log.info("Connecté en tant que %s", self.user)
@@ -56,8 +69,8 @@ class BotTournoi(discord.Client):
     async def verifier_delais(self) -> None:
         """Chaque minute : désinscrit les équipes qui n'ont pas confirmé à temps.
 
-        Les délais sont dans les JSON : après un redémarrage, les équipes en retard
-        sont désinscrites dès la première vérification.
+        Les délais sont enregistrés (base de données ou JSON) : après un redémarrage,
+        les équipes en retard sont désinscrites dès la première vérification.
         """
         try:
             await expirer_inscriptions(self)
@@ -102,6 +115,24 @@ def lire_delai_confirmation(valeur: str | None) -> int:
     return int(valeur)
 
 
+LONGUEUR_MIN_CLE_API = 32  # comme l'API, qui refuse une BOT_API_KEY plus courte
+
+
+def choisir_stockage(url: str | None, cle: str | None, dossier: Path) -> StockageFichiers | StockageAPI:
+    """API_URL rempli : la base de données via l'API (avec copie JSON pour tournament_manager).
+    API_URL vide : les fichiers JSON seuls, comme avant."""
+    url, cle = (url or "").strip(), (cle or "").strip()
+    if not url:
+        return StockageFichiers(dossier)
+    if not re.match(r"https?://[^\s/]+", url):
+        raise ValueError(f"API_URL doit commencer par http:// ou https:// (ex : API_URL=http://localhost), pas « {url} ».")
+    if len(cle) < LONGUEUR_MIN_CLE_API:
+        raise ValueError(
+            f"BOT_API_KEY manquante ou trop courte ({LONGUEUR_MIN_CLE_API} caractères minimum) : "
+            f"mets la même clé que dans le .env de l'API.")
+    return StockageAPI(url, cle, dossier_miroir=dossier)
+
+
 def main() -> None:
     load_dotenv(RACINE / ".env")
     token = os.getenv("DISCORD_TOKEN", "").strip()
@@ -118,7 +149,16 @@ def main() -> None:
     if serveur_id and not serveur_id.isdigit():
         sys.exit("❌ GUILD_ID doit contenir uniquement des chiffres (clic droit sur le serveur > Copier l'identifiant).")
 
-    bot = BotTournoi(Stockage(RACINE / "data" / "tournois"), int(serveur_id) if serveur_id else None)
+    try:
+        stockage = choisir_stockage(os.getenv("API_URL"), os.getenv("BOT_API_KEY"), RACINE / "data" / "tournois")
+    except ValueError as erreur:
+        sys.exit(f"❌ {erreur}")
+    if isinstance(stockage, StockageAPI):
+        log.info("Tournois enregistrés dans la base de données via %s", stockage.url)
+    else:
+        log.info("Tournois enregistrés dans les fichiers JSON (API_URL vide)")
+
+    bot = BotTournoi(stockage, int(serveur_id) if serveur_id else None)
     try:
         bot.run(token, root_logger=True)
     except discord.LoginFailure:

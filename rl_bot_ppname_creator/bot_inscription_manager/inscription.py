@@ -19,7 +19,8 @@ from . import logique as L
 from .embeds import embed_annonce, pseudo_jeu_affiche
 
 if TYPE_CHECKING:
-    from .stockage import Stockage
+    from .stockage import StockageFichiers
+    from .stockage_api import StockageAPI
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def heure_limite(equipe: dict) -> str:
     return f"<t:{horodatage}:t> (<t:{horodatage}:R>)"
 
 
-def stockage(interaction: discord.Interaction) -> Stockage:
+def stockage(interaction: discord.Interaction) -> StockageFichiers | StockageAPI:
     return interaction.client.stockage  # type: ignore[attr-defined]
 
 
@@ -49,6 +50,18 @@ async def repondre(interaction: discord.Interaction, texte: str | None, **kwargs
         await interaction.followup.send(texte, ephemeral=True, **kwargs)
     else:
         await interaction.response.send_message(texte, ephemeral=True, **kwargs)
+
+
+async def tournoi_ou_reponse(interaction: discord.Interaction, tournoi_id: str) -> dict | None:
+    """Lit le tournoi. S'il n'existe plus (ou si le serveur ne répond pas), répond au joueur et renvoie None."""
+    try:
+        tournoi = await stockage(interaction).lire(tournoi_id)
+    except L.ErreurTournoi as erreur:
+        await repondre(interaction, f"❌ {erreur}")
+        return None
+    if tournoi is None:
+        await repondre(interaction, "❌ Ce tournoi n'existe plus.")
+    return tournoi
 
 
 async def envoyer_mp(client: discord.Client, utilisateur_id: str | int, texte: str, **kwargs) -> bool:
@@ -107,24 +120,26 @@ def vue_annonce(tournoi: dict) -> ui.View:
 
 
 async def mettre_a_jour_annonce(client: discord.Client, tournoi_id: str) -> bool:
-    """Remet à jour l'annonce (titre, cashprize, compteurs, bouton) en relisant le JSON.
+    """Remet à jour l'annonce (titre, cashprize, compteurs, bouton) en relisant le tournoi.
 
-    Prend le verrou du tournoi : ne jamais l'appeler en tenant déjà ce verrou.
-    Retourne False si l'annonce n'a pas pu être modifiée (supprimée, salon inaccessible…).
+    Retourne False si l'annonce n'a pas pu être modifiée (supprimée, salon inaccessible,
+    serveur des tournois injoignable…).
     """
-    st: Stockage = client.stockage  # type: ignore[attr-defined]
-    async with st.verrou(tournoi_id):
-        tournoi = st.charger(tournoi_id)
-        if not tournoi or not tournoi.get("message_id"):
-            return False
-        try:
-            salon = client.get_channel(int(tournoi["salon_id"])) or await client.fetch_channel(int(tournoi["salon_id"]))
-            message = salon.get_partial_message(int(tournoi["message_id"]))  # type: ignore[union-attr]
-            await message.edit(embed=embed_annonce(tournoi), view=vue_annonce(tournoi))
-            return True
-        except (discord.HTTPException, AttributeError) as erreur:
-            log.warning("Impossible de mettre à jour l'annonce du tournoi %s : %s", tournoi_id, erreur)
-            return False
+    try:
+        tournoi = await client.stockage.lire(tournoi_id)  # type: ignore[attr-defined]
+    except L.ErreurTournoi as erreur:
+        log.warning("Impossible de relire le tournoi %s pour l'annonce : %s", tournoi_id, erreur)
+        return False
+    if not tournoi or not tournoi.get("message_id"):
+        return False
+    try:
+        salon = client.get_channel(int(tournoi["salon_id"])) or await client.fetch_channel(int(tournoi["salon_id"]))
+        message = salon.get_partial_message(int(tournoi["message_id"]))  # type: ignore[union-attr]
+        await message.edit(embed=embed_annonce(tournoi), view=vue_annonce(tournoi))
+        return True
+    except (discord.HTTPException, AttributeError) as erreur:
+        log.warning("Impossible de mettre à jour l'annonce du tournoi %s : %s", tournoi_id, erreur)
+        return False
 
 
 async def supprimer_annonce(client: discord.Client, tournoi: dict) -> None:
@@ -151,9 +166,9 @@ class BoutonInscription(ui.DynamicItem[ui.Button], template=r"rl:inscr:(?P<t>\d+
         return cls(match["t"])
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        tournoi = stockage(interaction).charger(self.tournoi_id)
+        tournoi = await tournoi_ou_reponse(interaction, self.tournoi_id)
         if tournoi is None:
-            return await repondre(interaction, "❌ Ce tournoi n'existe plus.")
+            return
         try:
             L.verifier_peut_s_inscrire(tournoi, str(interaction.user.id), maintenant())
         except L.ErreurTournoi as erreur:
@@ -212,23 +227,17 @@ class FicheInscription(ui.Modal):
             membres.append(membre)
 
         # 2. Enregistrement de l'équipe.
-        st = stockage(interaction)
-        async with st.verrou(self.tournoi_id):
-            tournoi = st.charger(self.tournoi_id)
-            if tournoi is None:
-                return await repondre(interaction, "❌ Ce tournoi n'existe plus.")
-            try:
-                equipe = L.inscrire_equipe(
-                    tournoi,
-                    nom=self.nom.value,
-                    capitaine=(str(capitaine.id), capitaine.display_name),
-                    pseudo_jeu_capitaine=self.pseudo_jeu.value,
-                    coequipiers=[(str(m.id), m.display_name) for m in membres],
-                    maintenant=maintenant(),
-                )
-            except L.ErreurTournoi as erreur:
-                return await repondre(interaction, f"❌ {erreur}")
-            st.sauvegarder(tournoi)
+        try:
+            tournoi, equipe = await stockage(interaction).inscrire(
+                self.tournoi_id,
+                nom=self.nom.value,
+                capitaine=(str(capitaine.id), capitaine.display_name),
+                pseudo_jeu_capitaine=self.pseudo_jeu.value,
+                coequipiers=[(str(m.id), m.display_name) for m in membres],
+                maintenant=maintenant(),
+            )
+        except L.ErreurTournoi as erreur:
+            return await repondre(interaction, f"❌ {erreur}")
 
         await mettre_a_jour_annonce(client, tournoi["id"])
 
@@ -300,9 +309,9 @@ class BoutonValider(ui.DynamicItem[ui.Button], template=r"rl:ok:(?P<t>\d+):(?P<e
         return cls(match["t"], int(match["e"]))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        tournoi = stockage(interaction).charger(self.tournoi_id)
+        tournoi = await tournoi_ou_reponse(interaction, self.tournoi_id)
         if tournoi is None:
-            return await repondre(interaction, "❌ Ce tournoi n'existe plus.")
+            return
         try:
             L.verifier_peut_confirmer(tournoi, self.equipe_id, str(interaction.user.id), maintenant())
         except L.ErreurTournoi as erreur:
@@ -326,17 +335,12 @@ class FicheConfirmation(ui.Modal):
         ))
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        st = stockage(interaction)
         joueur_id = str(interaction.user.id)
-        async with st.verrou(self.tournoi_id):
-            tournoi = st.charger(self.tournoi_id)
-            if tournoi is None:
-                return await repondre(interaction, "❌ Ce tournoi n'existe plus.")
-            try:
-                equipe = L.confirmer_joueur(tournoi, self.equipe_id, joueur_id, self.pseudo_jeu.value, maintenant())
-            except L.ErreurTournoi as erreur:
-                return await repondre(interaction, f"❌ {erreur}")
-            st.sauvegarder(tournoi)
+        try:
+            tournoi, equipe = await stockage(interaction).confirmer(
+                self.tournoi_id, self.equipe_id, joueur_id, self.pseudo_jeu.value, maintenant())
+        except L.ErreurTournoi as erreur:
+            return await repondre(interaction, f"❌ {erreur}")
 
         joueur = L.joueur_dans_equipe(equipe, joueur_id)
         await interaction.response.edit_message(
@@ -365,17 +369,12 @@ class BoutonRefuser(ui.DynamicItem[ui.Button], template=r"rl:non:(?P<t>\d+):(?P<
         return cls(match["t"], int(match["e"]))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        st = stockage(interaction)
         joueur_id = str(interaction.user.id)
-        async with st.verrou(self.tournoi_id):
-            tournoi = st.charger(self.tournoi_id)
-            if tournoi is None:
-                return await repondre(interaction, "❌ Ce tournoi n'existe plus.")
-            try:
-                equipe, promues = L.refuser_joueur(tournoi, self.equipe_id, joueur_id, maintenant())
-            except L.ErreurTournoi as erreur:
-                return await repondre(interaction, f"❌ {erreur}")
-            st.sauvegarder(tournoi)
+        try:
+            tournoi, equipe, promues = await stockage(interaction).refuser(
+                self.tournoi_id, self.equipe_id, joueur_id, maintenant())
+        except L.ErreurTournoi as erreur:
+            return await repondre(interaction, f"❌ {erreur}")
 
         joueur = L.joueur_dans_equipe(equipe, joueur_id)
         await interaction.response.edit_message(
@@ -414,9 +413,9 @@ class BoutonAnnuler(ui.DynamicItem[ui.Button], template=r"rl:annul:(?P<t>\d+):(?
         return cls(match["t"], int(match["e"]))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        tournoi = stockage(interaction).charger(self.tournoi_id)
+        tournoi = await tournoi_ou_reponse(interaction, self.tournoi_id)
         if tournoi is None:
-            return await repondre(interaction, "❌ Ce tournoi n'existe plus.")
+            return
         try:
             equipe = L.trouver_equipe(tournoi, self.equipe_id)
         except L.ErreurTournoi as erreur:
@@ -440,20 +439,17 @@ class ConfirmationAnnulation(ui.View):
 
     @ui.button(label="Oui, annuler", style=discord.ButtonStyle.danger)
     async def confirmer(self, interaction: discord.Interaction, _bouton: ui.Button) -> None:
-        st = stockage(interaction)
-        async with st.verrou(self.tournoi_id):
-            tournoi = st.charger(self.tournoi_id)
-            if tournoi is None:
-                return await repondre(interaction, "❌ Ce tournoi n'existe plus.")
-            try:
-                equipe = L.trouver_equipe(tournoi, self.equipe_id)
-                if equipe["capitaine_id"] != str(interaction.user.id):
-                    raise L.ErreurTournoi("Seul le capitaine peut annuler l'inscription.")
-                equipe, promues = L.annuler_equipe(
-                    tournoi, self.equipe_id, "annulée par le capitaine", maintenant())
-            except L.ErreurTournoi as erreur:
-                return await repondre(interaction, f"❌ {erreur}")
-            st.sauvegarder(tournoi)
+        tournoi = await tournoi_ou_reponse(interaction, self.tournoi_id)
+        if tournoi is None:
+            return
+        try:
+            equipe = L.trouver_equipe(tournoi, self.equipe_id)
+            if equipe["capitaine_id"] != str(interaction.user.id):
+                raise L.ErreurTournoi("Seul le capitaine peut annuler l'inscription.")
+            tournoi, equipe, promues = await stockage(interaction).annuler_equipe(
+                self.tournoi_id, self.equipe_id, "annulée par le capitaine", maintenant())
+        except L.ErreurTournoi as erreur:
+            return await repondre(interaction, f"❌ {erreur}")
 
         await interaction.response.edit_message(
             content=f"🗑️ L'inscription de **{equipe['nom']}** au tournoi **{tournoi['titre']}** est annulée.",
@@ -501,24 +497,19 @@ async def expirer_inscriptions(client: discord.Client) -> int:
 
     Retourne le nombre d'équipes désinscrites.
     """
-    st: Stockage = client.stockage  # type: ignore[attr-defined]
+    try:
+        resultats = await client.stockage.echeances(maintenant())  # type: ignore[attr-defined]
+    except L.ErreurTournoi as erreur:
+        log.warning("Échéances non vérifiées : %s", erreur)
+        return 0
     total = 0
-    for resume in st.lister():
-        tournoi_id = resume["id"]
-        async with st.verrou(tournoi_id):
-            tournoi = st.charger(tournoi_id)
-            if tournoi is None:
-                continue
-            instant = maintenant()
-            expirees, promues = L.expirer_equipes(tournoi, instant)
-            reservations_expirees, promues_reservations = L.expirer_reservations(tournoi, instant)
-            promues += promues_reservations
-            ouverture = L.ouvrir_inscriptions(tournoi, instant)
-            if not (expirees or reservations_expirees or ouverture):
-                continue
-            st.sauvegarder(tournoi)
-
-        if ouverture:
+    for resultat in resultats:
+        tournoi = resultat["tournoi"]
+        tournoi_id = tournoi["id"]
+        expirees = resultat["equipes_expirees"]
+        reservations_expirees = resultat["reservations_expirees"]
+        promues = resultat["promues"]
+        if resultat["inscriptions_ouvertes"]:
             log.info("Tournoi %s : inscriptions ouvertes", tournoi_id)
         for reservation in reservations_expirees:
             log.info("Tournoi %s : réservation R%s %s expirée", tournoi_id, reservation["id"], reservation["nom"])
@@ -530,10 +521,10 @@ async def expirer_inscriptions(client: discord.Client) -> int:
             )
 
         total += len(expirees)
-        for equipe in expirees:
+        for expiree in expirees:
+            equipe, retardataires = expiree["equipe"], expiree["retardataires"]
             log.info("Tournoi %s : équipe #%s %s désinscrite (%s)",
                      tournoi_id, equipe["id"], equipe["nom"], equipe["raison_annulation"])
-            retardataires = L.joueurs_en_attente(equipe)
             verbe = "n'a pas confirmé sa" if len(retardataires) == 1 else "n'ont pas confirmé leur"
             texte = (
                 f"⏰ L'équipe **{equipe['nom']}** est désinscrite du tournoi **{tournoi['titre']}** : "

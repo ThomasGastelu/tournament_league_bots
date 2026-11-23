@@ -19,7 +19,7 @@ Dépôt Git : `ThomasGastelu/tournament_league_bots`, branche `main`. L'utilisat
 ## Liens entre les bots
 
 ```
-bot_inscription_manager  ──écrit──▶  rl_bot_ppname_creator/data/tournois/<id>.json
+bot_inscription_manager  ──écrit──▶  rl_bot_ppname_creator/data/tournois/<id>.json   (copie de la base si API_URL)
                                                    │ (lu, jamais modifié)
 bot_tournament_manager   ──lit─────────────────────┘
                          ──écrit────▶ rl_tournament_manager/data/{tournois,pp,archives}/
@@ -34,7 +34,7 @@ bot_tournament_manager   ──lit───────────────�
 
 - Python 3 (testé jusqu'à 3.14), `discord.py >= 2.6` : commandes slash (`app_commands`, autocomplétion), modals et boutons (`discord.ui`), `DynamicItem` pour des boutons persistants.
 - `python-dotenv` pour la configuration, `pytest >= 8` pour les tests.
-- Persistance : fichiers JSON (un par tournoi), pas de base de données.
+- Persistance : fichiers JSON (un par tournoi). Exception : `bot_inscription_manager` enregistre en base PostgreSQL via l'API de `tournament_site` (routes `/api/bot/*`, `aiohttp`) quand `API_URL` et `BOT_API_KEY` sont remplis dans son `.env`, et garde une copie JSON pour `tournament_manager`.
 - `rl_api_pp_connector` : `pyautogui`, `pydirectinput`, `pygetwindow`, `pillow`, `pytesseract` (facultatif, nécessite Tesseract-OCR). Windows uniquement, Rocket League en plein écran fenêtré, Stats API activée (`PacketSendRate > 0` dans `DefaultStatsAPI.ini` et `TAStatsAPI.ini`).
 
 ## Lancer et tester
@@ -86,7 +86,7 @@ Les trois bots suivent le même découpage. Respecter cette séparation :
 
 Spécifique à `bot_ticket` : `tickets.py` (boutons « Créer un ticket », « Problème résolu » (auteur seul) et « Fermer le ticket » en `DynamicItem`, liste des catégories, création / fermeture des salons, `boucle_fermeture_auto` : toutes les 10 min, ferme les tickets où le staff a parlé en dernier depuis `FERMETURE_AUTO_HEURES`, 72 par défaut, relu dans l'historique du salon). Pas de `stockage.py` : l'auteur et la catégorie d'un ticket sont dans le sujet du salon (`ticket:<id>:<catégorie>`). Embeds en bleu `0x5865F2` pour ressembler au modèle du panneau Support.
 
-Spécifique à `bot_inscription_manager` : `inscription.py` (bouton S'inscrire, fiches, boutons Valider / Refuser / Annuler en `DynamicItem` ; chaque minute, `expirer_inscriptions` désinscrit les équipes non confirmées, rend les réservations échues et met l'annonce à jour à l'ouverture des inscriptions).
+Spécifique à `bot_inscription_manager` : deux stockages aux mêmes méthodes asynchrones (`lire`, `lister`, `creer`, `inscrire`, `confirmer`, `refuser`, `annuler_equipe`, `reserver`, `annuler_reservation`, `modifier`, `supprimer`, `echeances`), choisis par `main.choisir_stockage` : `StockageFichiers` (`stockage.py`, règles de `logique.py` sous verrou) et `StockageAPI` (`stockage_api.py`, l'API applique les règles ; `traduire_erreur` met ses refus en français ; copie JSON de chaque tournoi renvoyé, pour `tournament_manager`). `importer.py` (`python -m bot_inscription_manager.importer`) envoie les anciens JSON à `POST /api/bot/import`. Tests avec la vraie API sautés sans `API_TEST_URL` / `API_TEST_KEY`. `inscription.py` (bouton S'inscrire, fiches, boutons Valider / Refuser / Annuler en `DynamicItem` ; chaque minute, `expirer_inscriptions` désinscrit les équipes non confirmées, rend les réservations échues et met l'annonce à jour à l'ouverture des inscriptions).
 
 Spécifique à `bot_tournament_manager` :
 - `config.py` : lecture et validation du `.env` (`Config`).

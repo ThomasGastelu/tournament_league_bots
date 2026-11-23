@@ -219,7 +219,8 @@ def position_attente(tournoi: dict, equipe: dict) -> int | None:
 
 def lire_date(texte: str) -> datetime:
     """Lit une date ISO. Une date sans fuseau horaire est considérée comme l'heure locale."""
-    date = datetime.fromisoformat(texte)
+    # « Z » (UTC, renvoyé par l'API) n'est compris par fromisoformat qu'à partir de Python 3.11.
+    date = datetime.fromisoformat(texte[:-1] + "+00:00" if texte.endswith("Z") else texte)
     return date if date.tzinfo else date.astimezone()
 
 
@@ -277,6 +278,39 @@ def nettoyer_pseudo_jeu(pseudo_jeu: str) -> str:
     return pseudo_jeu
 
 
+def verifier_fiche(
+    tournoi: dict,
+    *,
+    nom: str,
+    capitaine: tuple[str, str],
+    pseudo_jeu_capitaine: str,
+    coequipiers: list[tuple[str, str]],
+) -> tuple[str, str]:
+    """Vérifie la fiche d'inscription elle-même (sans regarder les autres équipes).
+
+    Sert aussi avant d'appeler l'API, pour garder des messages d'erreur précis.
+    Retourne (nom nettoyé, pseudo Rocket League nettoyé).
+    """
+    pseudo_jeu_capitaine = nettoyer_pseudo_jeu(pseudo_jeu_capitaine)
+    nom = nom.strip()
+    if not nom:
+        raise ErreurTournoi("Le nom de l'équipe ne peut pas être vide.")
+    if len(nom) > LONGUEUR_MAX_NOM_EQUIPE:
+        raise ErreurTournoi(f"Le nom de l'équipe fait au maximum {LONGUEUR_MAX_NOM_EQUIPE} caractères.")
+
+    attendus = tournoi["joueurs_par_equipe"] - 1
+    if len(coequipiers) != attendus:
+        raise ErreurTournoi(f"Il faut choisir exactement {attendus} coéquipier(s).")
+
+    capitaine_id, _ = capitaine
+    ids = [capitaine_id] + [c[0] for c in coequipiers]
+    if capitaine_id in ids[1:]:
+        raise ErreurTournoi("Tu ne peux pas te choisir toi-même comme coéquipier.")
+    if len(set(ids)) != len(ids):
+        raise ErreurTournoi("Le même joueur a été choisi deux fois.")
+    return nom, pseudo_jeu_capitaine
+
+
 def inscrire_equipe(
     tournoi: dict,
     *,
@@ -294,25 +328,11 @@ def inscrire_equipe(
     Si le capitaine a une place réservée, l'équipe prend cette place
     (même avant l'ouverture des inscriptions) et la réservation est « utilisée ».
     """
-    pseudo_jeu_capitaine = nettoyer_pseudo_jeu(pseudo_jeu_capitaine)
-    nom = nom.strip()
-    if not nom:
-        raise ErreurTournoi("Le nom de l'équipe ne peut pas être vide.")
-    if len(nom) > LONGUEUR_MAX_NOM_EQUIPE:
-        raise ErreurTournoi(f"Le nom de l'équipe fait au maximum {LONGUEUR_MAX_NOM_EQUIPE} caractères.")
+    nom, pseudo_jeu_capitaine = verifier_fiche(
+        tournoi, nom=nom, capitaine=capitaine, pseudo_jeu_capitaine=pseudo_jeu_capitaine, coequipiers=coequipiers)
     if any(e["nom"].casefold() == nom.casefold() for e in equipes_actives(tournoi)):
         raise ErreurTournoi(f"Le nom **{nom}** est déjà pris dans ce tournoi.")
-
-    attendus = tournoi["joueurs_par_equipe"] - 1
-    if len(coequipiers) != attendus:
-        raise ErreurTournoi(f"Il faut choisir exactement {attendus} coéquipier(s).")
-
     capitaine_id, _ = capitaine
-    ids = [capitaine_id] + [c[0] for c in coequipiers]
-    if capitaine_id in ids[1:]:
-        raise ErreurTournoi("Tu ne peux pas te choisir toi-même comme coéquipier.")
-    if len(set(ids)) != len(ids):
-        raise ErreurTournoi("Le même joueur a été choisi deux fois.")
 
     for joueur_id, pseudo in [capitaine] + coequipiers:
         equipe = equipe_du_joueur(tournoi, joueur_id)

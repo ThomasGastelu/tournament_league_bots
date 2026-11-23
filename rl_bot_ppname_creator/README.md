@@ -23,7 +23,7 @@ Les `id` et `team_id` sont proposés en autocomplétion. Le `team_id` est le `#n
 4. Les coéquipiers ont **30 minutes** (réglable avec `DELAI_CONFIRMATION_MINUTES` dans `.env`) pour confirmer (heure limite affichée dans les MP et dans `/tournoi_rl_status`). Passé ce délai, le bot désinscrit l'équipe automatiquement (vérification chaque minute, même après un redémarrage) et prévient tous ses joueurs en MP. Les équipes inscrites avant l'ajout de ce délai ne sont pas concernées.
 5. Si un coéquipier refuse, ne confirme pas à temps, si le capitaine annule ou si un admin retire l'équipe, la place est donnée à la première équipe de la liste d'attente, qui est prévenue en MP.
 
-Les données sont dans `data/tournois/<id>.json` (un fichier par tournoi). Champs ajoutés pour l'ouverture différée et les réservations (absents des anciens fichiers, qui restent valables) :
+Les données sont dans la base de données (si `API_URL` est rempli, voir [Base de données](#base-de-données)) ou dans `data/tournois/<id>.json` (un fichier par tournoi). Le format est le même dans les deux cas. Champs ajoutés pour l'ouverture différée et les réservations (absents des anciens fichiers, qui restent valables) :
 - `ouverture_inscriptions` : heure d'ouverture, remise à `null` une fois les inscriptions ouvertes ;
 - `reservations` : liste de `{id, nom, capitaine_id, capitaine, statut (active / utilisee / expiree / annulee), cree_par, cree_le, expire_le, equipe_id, terminee_le}` ;
 - `reservation_id` sur une équipe inscrite grâce à une réservation.
@@ -45,6 +45,25 @@ Les données sont dans `data/tournois/<id>.json` (un fichier par tournoi). Champ
 - Changer le titre ou le cashprize n'envoie pas de MP : seule l'annonce est mise à jour (les anciens MP gardent l'ancien texte).
 - ⚠️ Une fois le tournoi lancé avec `rl_tournament_manager`, les modifications ne changent plus le tournoi en cours (il a copié le titre et les équipes au lancement). Les équipes promues à ce moment-là ne jouent pas.
 
+## Base de données
+
+Avec `API_URL` et `BOT_API_KEY` dans le `.env`, le bot enregistre tout dans la base PostgreSQL du site, via l'API de `tournament_site` (routes `/api/bot/*`, décrites dans son `ROUTES.md`). Sans `API_URL`, il garde les fichiers JSON comme avant.
+
+- C'est l'API qui applique les règles (places, liste d'attente, promotions, délais de confirmation, réservations) dans des transactions. Le bot vérifie d'abord la fiche lui-même pour garder des messages précis, puis traduit en français les refus de l'API.
+- Chaque minute, le bot appelle `POST /api/bot/maintenance/tick` : l'API désinscrit les équipes hors délai, rend les réservations échues et ouvre les inscriptions ; le bot envoie les MP et met les annonces à jour.
+- **`tournament_manager` lit toujours `data/tournois/<id>.json`** : le bot y écrit une copie de chaque tournoi à chaque changement, et recopie tous les tournois du serveur (`GUILD_ID`) au démarrage. Ces fichiers ne sont plus la référence : ne les modifie pas à la main.
+- Si l'API ne répond pas, le joueur reçoit « Le serveur des tournois ne répond pas. Réessaie dans un instant. » et rien n'est enregistré.
+
+### Passer des fichiers JSON à la base (une seule fois)
+
+1. Lance l'API (`docker compose up -d` dans `tournament_site`) et vérifie `BOT_API_KEY` dans son `.env`.
+2. Remplis `API_URL` (ex : `http://localhost`) et la même `BOT_API_KEY` dans le `.env` du bot.
+3. Importe les anciens tournois (les fichiers ne sont pas modifiés ; sans danger à relancer) :
+   ```powershell
+   .venv\Scripts\python -m bot_inscription_manager.importer
+   ```
+4. Redémarre le bot.
+
 ## Installation
 
 ### 1. Créer le bot sur Discord
@@ -63,6 +82,7 @@ Aucun « Privileged Gateway Intent » n'est nécessaire.
 Copie `.env.example` en `.env` et remplis :
 - `DISCORD_TOKEN` : le token du bot.
 - `GUILD_ID` : l'ID de ton serveur (Paramètres Discord > Avancés > Mode développeur, puis clic droit sur le serveur > **Copier l'identifiant du serveur**). Avec cet ID, les commandes apparaissent immédiatement.
+- `API_URL` et `BOT_API_KEY` (facultatifs) : adresse de l'API du site et sa clé, pour enregistrer les tournois en base (voir [Base de données](#base-de-données)).
 - `DELAI_CONFIRMATION_MINUTES` : minutes laissées aux coéquipiers pour confirmer (30 par défaut, de 1 à 10080). Redémarre le bot après un changement. Le nouveau délai ne s'applique qu'aux inscriptions faites après le redémarrage : les équipes déjà inscrites gardent leur heure limite.
 
 ### 3. Lancer
@@ -88,4 +108,10 @@ Windows (PowerShell) :
 Linux / macOS (Bash) :
 ```bash
 .venv/bin/python -m pytest
+```
+
+Les tests avec la vraie API (`tests/test_stockage_api.py`) sont sautés par défaut. Pour les lancer, sur une **base de test** (ils créent de vrais tournois) :
+```powershell
+$env:API_TEST_URL="http://localhost"; $env:API_TEST_KEY="<BOT_API_KEY de l'API>"
+.venv\Scripts\python -m pytest
 ```
