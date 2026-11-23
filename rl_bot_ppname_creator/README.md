@@ -7,6 +7,7 @@
 | `/tournoi_rl titre cashprize joueurs_par_equipe equipes_max date [delay]` | admins | Poste l'annonce avec le bouton **S'inscrire** dans le salon. `delay` = minutes avant l'ouverture des inscriptions (0 par défaut, 10080 max), pour avoir le temps de réserver des places. |
 | `/tournoi_rl_modify id [titre] [cashprize] [equipes_max]` | admins | Modifie le titre, le cashprize et/ou le nombre maximum d'équipes (au moins un des trois). L'annonce est mise à jour. |
 | `/tournoi_rl_status id` | tout le monde | Équipes inscrites, joueurs qui n'ont pas validé, liste d'attente (réponse visible par toi seul). |
+| `/tournoi_rl_status_all id` | admins | Même contenu que `/tournoi_rl_status`, mais posté dans le salon et visible par tout le monde. |
 | `/tournoi_rl_reserve id capitaine nom duree` | admins | Réserve une place pour l'équipe de `capitaine` (invités, partenaires) pendant `duree` minutes (30 jours max). Le capitaine est prévenu en MP. |
 | `/tournoi_rl_unreserve id reservation` | admins | Annule une place réservée (`Rn` dans `/tournoi_rl_status`) : elle est rendue aux autres équipes. |
 | `/tournoi_rl_remove_team id team_id` | admins | Retire une équipe et fait monter la première équipe de la liste d'attente. |

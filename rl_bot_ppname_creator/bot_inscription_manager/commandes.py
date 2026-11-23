@@ -1,4 +1,4 @@
-"""Commandes slash : /tournoi_rl, /tournoi_rl_modify, /tournoi_rl_status, /tournoi_rl_reserve,
+"""Commandes slash : /tournoi_rl, /tournoi_rl_modify, /tournoi_rl_status, /tournoi_rl_status_all, /tournoi_rl_reserve,
 /tournoi_rl_unreserve, /tournoi_rl_remove_team, /tournoi_rl_remove."""
 
 from __future__ import annotations
@@ -199,6 +199,25 @@ async def tournoi_rl_status(interaction: discord.Interaction, tournoi_id: str) -
         await repondre(interaction, None, embed=embed)
 
 
+@app_commands.command(name="tournoi_rl_status_all",
+                      description="Affiche à tout le salon les équipes inscrites et la liste d'attente d'un tournoi")
+@app_commands.rename(tournoi_id="id")
+@app_commands.describe(tournoi_id="ID du tournoi")
+@app_commands.autocomplete(tournoi_id=autocomplete_tournoi)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def tournoi_rl_status_all(interaction: discord.Interaction, tournoi_id: str) -> None:
+    """Comme /tournoi_rl_status, mais la réponse est visible par tout le monde dans le salon."""
+    tournoi = tournoi_du_serveur(interaction, tournoi_id)
+    if tournoi is None:
+        return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
+    for embed in embeds_status(tournoi):
+        if interaction.response.is_done():
+            await interaction.followup.send(None, embed=embed)
+        else:
+            await interaction.response.send_message(None, embed=embed)
+
+
 # --------------------------------------------------------------------------- #
 # /tournoi_rl_reserve et /tournoi_rl_unreserve
 # --------------------------------------------------------------------------- #
@@ -381,7 +400,7 @@ class ConfirmationSuppression(ui.View):
         await interaction.response.edit_message(content="👍 Tournoi conservé.", view=None)
 
 
-COMMANDES = [tournoi_rl, tournoi_rl_modify, tournoi_rl_status, tournoi_rl_reserve, tournoi_rl_unreserve,
+COMMANDES = [tournoi_rl, tournoi_rl_modify, tournoi_rl_status, tournoi_rl_status_all, tournoi_rl_reserve, tournoi_rl_unreserve,
              tournoi_rl_remove_team, tournoi_rl_remove]
 
 

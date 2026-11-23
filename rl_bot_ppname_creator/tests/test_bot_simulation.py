@@ -12,7 +12,7 @@ import pytest
 from bot_inscription_manager import logique as L
 from bot_inscription_manager.commandes import (autocomplete_tournoi, texte_modification, tournoi_rl,
                                                tournoi_rl_modify, tournoi_rl_remove, tournoi_rl_remove_team,
-                                               tournoi_rl_status)
+                                               tournoi_rl_status, tournoi_rl_status_all)
 from bot_inscription_manager.inscription import (BoutonAnnuler, BoutonInscription, BoutonRefuser, BoutonValider,
                                                  FicheConfirmation,
                              ConfirmationAnnulation, FicheInscription)
@@ -479,3 +479,27 @@ def test_desinscription_automatique_apres_30_minutes(monde):
     assert "Une place s'est libérée" in j["Hugo"].mp[-1]
     assert client.salon.annonce.editions[-1]["embed"].fields[2].value == "1/1"
     assert lancer(expirer_inscriptions(client)) == 0  # déjà traitée
+
+
+def test_status_all_visible_par_tous(monde):
+    client, j = monde
+    tid = creer_tournoi(client, j["Admin"], equipes_max=4)
+    inscrire(client, j["Thomas"], [j["Lucas"]], "Les Tomates", tid)
+    prive = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_status.callback(prive, tournoi_id=tid))
+    public = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_status_all.callback(public, tournoi_id=tid))
+    assert len(public.reponses) == len(prive.reponses) >= 1
+    for (_, kw_public), (_, kw_prive) in zip(public.reponses, prive.reponses):
+        assert kw_prive["ephemeral"] is True
+        assert not kw_public.get("ephemeral", False)
+        assert kw_public["embed"].description == kw_prive["embed"].description
+    assert "Les Tomates" in public.reponses[0][1]["embed"].description
+
+
+def test_status_all_tournoi_inconnu(monde):
+    client, j = monde
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_status_all.callback(inter, tournoi_id="123"))
+    assert "Aucun tournoi" in inter.dernier_texte()
+    assert inter.reponses[-1][1]["ephemeral"] is True
