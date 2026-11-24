@@ -11,6 +11,7 @@
 | `/tournoi_rl_reserve id capitaine nom duree` | admins | Réserve une place pour l'équipe de `capitaine` (invités, partenaires) pendant `duree` minutes (30 jours max). Le capitaine est prévenu en MP. |
 | `/tournoi_rl_unreserve id reservation` | admins | Annule une place réservée (`Rn` dans `/tournoi_rl_status`) : elle est rendue aux autres équipes. |
 | `/tournoi_rl_modify_player id joueur [pseudo_jeu] [pseudo]` | admins | Change le pseudo Rocket League et/ou le pseudo affiché d'un joueur inscrit ou en liste d'attente (au moins un des deux). Le pseudo Rocket League ne se change que pour un joueur qui a déjà confirmé. Le joueur est prévenu en MP. Sans effet sur un tournoi déjà lancé par `tournament_manager`. |
+| `/tournoi_rl_modify_member id ancien nouveau pseudo_jeu` | admins | Remplace un joueur d'une équipe (inscrite ou en liste d'attente) par un autre membre du serveur. Le nouveau joueur est directement confirmé avec le pseudo Rocket League donné ; si l'ancien était capitaine, le nouveau le devient. Les deux joueurs sont prévenus en MP. Sans effet sur un tournoi déjà lancé par `tournament_manager`. |
 | `/tournoi_rl_remove_team id team_id` | admins | Retire une équipe et fait monter la première équipe de la liste d'attente. |
 | `/tournoi_rl_remove id` | admins | Annule et efface le tournoi (après confirmation) : annonce supprimée, joueurs prévenus en MP, fichier JSON effacé. |
 

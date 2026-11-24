@@ -581,6 +581,44 @@ def modifier_joueur(
     return equipe, joueur, changements
 
 
+def remplacer_joueur(
+    tournoi: dict,
+    ancien_id: str,
+    nouveau: tuple[str, str],
+    pseudo_jeu: str,
+) -> tuple[dict, dict, dict]:
+    """Remplace un joueur d'une équipe active par un autre membre (tuple (id, pseudo Discord)).
+
+    Le nouveau joueur prend la même place dans l'équipe, avec son pseudo Rocket League
+    donné par l'admin : il est directement confirmé. Si l'ancien joueur était capitaine,
+    le nouveau devient capitaine. Tout est vérifié avant de toucher au tournoi.
+    Retourne (équipe, ancien joueur, nouveau joueur).
+    """
+    nouveau_id, nouveau_pseudo = nouveau
+    pseudo_jeu = nettoyer_pseudo_jeu(pseudo_jeu)
+    equipe = equipe_du_joueur(tournoi, ancien_id)
+    if equipe is None:
+        raise ErreurTournoi("Ce joueur n'est dans aucune équipe inscrite ou en liste d'attente de ce tournoi.")
+    if nouveau_id == ancien_id:
+        raise ErreurTournoi("Le nouveau joueur est le même que l'ancien.")
+    deja = equipe_du_joueur(tournoi, nouveau_id)
+    if deja is not None:
+        raise ErreurTournoi(f"**{nouveau_pseudo}** est déjà dans l'équipe **{deja['nom']}** pour ce tournoi.")
+    if reservation_du_capitaine(tournoi, nouveau_id) is not None:
+        raise ErreurTournoi(
+            f"**{nouveau_pseudo}** a une place réservée dans ce tournoi. "
+            "Annule-la d'abord avec `/tournoi_rl_unreserve`.")
+
+    index = next(i for i, j in enumerate(equipe["joueurs"]) if j["id"] == ancien_id)
+    ancien = equipe["joueurs"][index]
+    remplacant = {"id": nouveau_id, "pseudo": nouveau_pseudo, "pseudo_jeu": pseudo_jeu, "statut": CONFIRME}
+    equipe["joueurs"][index] = remplacant
+    if equipe["capitaine_id"] == ancien_id:
+        equipe["capitaine_id"] = nouveau_id
+        equipe["capitaine"] = {"pseudo": nouveau_pseudo, "pseudo_jeu": pseudo_jeu}
+    return equipe, ancien, remplacant
+
+
 CHAMPS_MODIFIABLES = {"titre": "Titre", "cashprize": "Cashprize", "equipes_max": "Équipes max"}
 
 

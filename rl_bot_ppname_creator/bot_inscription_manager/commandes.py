@@ -1,5 +1,6 @@
 """Commandes slash : /tournoi_rl, /tournoi_rl_modify, /tournoi_rl_status, /tournoi_rl_status_all, /tournoi_rl_reserve,
-/tournoi_rl_unreserve, /tournoi_rl_modify_player, /tournoi_rl_remove_team, /tournoi_rl_remove."""
+/tournoi_rl_unreserve, /tournoi_rl_modify_player,
+/tournoi_rl_modify_member, /tournoi_rl_remove_team, /tournoi_rl_remove."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ import discord
 from discord import app_commands, ui
 
 from . import logique as L
-from .embeds import embed_annonce, embeds_status
+from .embeds import embed_annonce, embeds_status, pseudo_jeu_affiche
 from .inscription import (apres_annulation, envoyer_mp, horaire, maintenant, mettre_a_jour_annonce,
                           prevenir_promues, repondre, stockage, supprimer_annonce, texte_reservation, vue_annonce)
 
@@ -361,6 +362,66 @@ async def tournoi_rl_modify_player(
 
 
 # --------------------------------------------------------------------------- #
+# /tournoi_rl_modify_member
+# --------------------------------------------------------------------------- #
+
+@app_commands.command(name="tournoi_rl_modify_member",
+                      description="Remplace un joueur inscrit par un autre membre du serveur")
+@app_commands.rename(tournoi_id="id")
+@app_commands.describe(
+    tournoi_id="ID du tournoi",
+    ancien="Le joueur inscrit à remplacer",
+    nouveau="Le membre qui prend sa place",
+    pseudo_jeu="Pseudo Rocket League du nouveau joueur (exactement celui du jeu)",
+)
+@app_commands.autocomplete(tournoi_id=autocomplete_tournoi)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def tournoi_rl_modify_member(
+    interaction: discord.Interaction,
+    tournoi_id: str,
+    ancien: discord.User,
+    nouveau: discord.Member,
+    pseudo_jeu: app_commands.Range[str, 1, L.LONGUEUR_MAX_PSEUDO_JEU],
+) -> None:
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    if nouveau.bot:
+        return await repondre(interaction, f"❌ **{nouveau.display_name}** est un bot.")
+    st = stockage(interaction)
+    tournoi_id = tournoi_id.strip()
+    async with st.verrou(tournoi_id):
+        tournoi = tournoi_du_serveur(interaction, tournoi_id)
+        if tournoi is None:
+            return await repondre(interaction, f"❌ Aucun tournoi avec l'ID `{tournoi_id}` sur ce serveur.")
+        try:
+            equipe, sortant, entrant = L.remplacer_joueur(
+                tournoi, str(ancien.id), (str(nouveau.id), nouveau.display_name), pseudo_jeu)
+        except L.ErreurTournoi as erreur:
+            return await repondre(interaction, f"❌ {erreur}")
+        st.sauvegarder(tournoi)
+
+    capitaine = equipe["capitaine_id"] == entrant["id"]
+    log.info("Tournoi %s : %s remplacé par %s dans l'équipe #%s par %s", tournoi["id"], ancien.id, nouveau.id,
+             equipe["id"], interaction.user.id)
+    await envoyer_mp(
+        interaction.client, ancien.id,
+        f"🔄 Un admin t'a remplacé par **{entrant['pseudo']}** dans l'équipe **{equipe['nom']}** "
+        f"du tournoi **{tournoi['titre']}** ({tournoi['date']}). Tu n'es plus inscrit.")
+    prevenu = await envoyer_mp(
+        interaction.client, nouveau.id,
+        f"✅ Un admin t'a ajouté à l'équipe **{equipe['nom']}** du tournoi **{tournoi['titre']}** "
+        f"({tournoi['date']}) à la place de **{sortant['pseudo']}**"
+        + (", et tu en es le capitaine" if capitaine else "")
+        + f".\n🎮 Ton pseudo Rocket League : {pseudo_jeu_affiche(entrant)}\n{L.AVERTISSEMENT_PSEUDO_JEU}")
+    texte = (f"✅ **{sortant['pseudo']}** remplacé par **{entrant['pseudo']}** (🎮 {pseudo_jeu_affiche(entrant)}) "
+             f"dans l'équipe `#{equipe['id']}` **{equipe['nom']}**"
+             + (" : il devient capitaine." if capitaine else "."))
+    texte += ("\n📩 Le nouveau joueur a été prévenu en MP." if prevenu else
+              "\n⚠️ Impossible d'envoyer un MP au nouveau joueur (MP fermés) : préviens-le toi-même.")
+    await repondre(interaction, texte)
+
+
+# --------------------------------------------------------------------------- #
 # /tournoi_rl_remove_team
 # --------------------------------------------------------------------------- #
 
@@ -457,7 +518,8 @@ class ConfirmationSuppression(ui.View):
 
 
 COMMANDES = [tournoi_rl, tournoi_rl_modify, tournoi_rl_status, tournoi_rl_status_all, tournoi_rl_reserve, tournoi_rl_unreserve,
-             tournoi_rl_modify_player, tournoi_rl_remove_team, tournoi_rl_remove]
+             tournoi_rl_modify_player,
+             tournoi_rl_modify_member, tournoi_rl_remove_team, tournoi_rl_remove]
 
 
 async def gerer_erreur(interaction: discord.Interaction, erreur: app_commands.AppCommandError) -> None:

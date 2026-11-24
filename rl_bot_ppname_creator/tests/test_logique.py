@@ -445,3 +445,39 @@ def test_modifier_joueur_refuse():
     L.annuler_equipe(t, e["id"], "test", T0)
     with pytest.raises(L.ErreurTournoi, match="aucune équipe"):
         L.modifier_joueur(t, "c1", pseudo="X")
+
+
+def test_remplacer_un_coequipier_en_attente():
+    t = tournoi()
+    e = inscrire(t, 1)
+    equipe, ancien, nouveau = L.remplacer_joueur(t, "j1a", ("z", "Zoe"), "  Zoe_RL ")
+    assert equipe is e and ancien["id"] == "j1a"
+    assert e["joueurs"][1] == {"id": "z", "pseudo": "Zoe", "pseudo_jeu": "Zoe_RL", "statut": L.CONFIRME}
+    assert L.equipe_confirmee(e) and e["capitaine_id"] == "c1"
+    assert L.equipe_du_joueur(t, "j1a") is None  # l'ancien peut se réinscrire ailleurs
+
+
+def test_remplacer_le_capitaine():
+    t = tournoi()
+    e = inscrire(t, 1)
+    L.remplacer_joueur(t, "c1", ("z", "Zoe"), "Zoe_RL")
+    assert e["capitaine_id"] == "z" and e["capitaine"] == {"pseudo": "Zoe", "pseudo_jeu": "Zoe_RL"}
+    assert e["joueurs"][0]["id"] == "z"
+
+
+def test_remplacer_joueur_refuse():
+    t = tournoi(equipes_max=3)
+    e = inscrire(t, 1)
+    inscrire(t, 2)
+    L.reserver_place(t, nom="Invités", capitaine=("r", "R"), duree_minutes=60, cree_par="9", maintenant=T0)
+    with pytest.raises(L.ErreurTournoi, match="aucune équipe"):
+        L.remplacer_joueur(t, "intrus", ("z", "Zoe"), "Zoe_RL")
+    with pytest.raises(L.ErreurTournoi, match="même que l'ancien"):
+        L.remplacer_joueur(t, "c1", ("c1", "C1"), "C1_RL")
+    with pytest.raises(L.ErreurTournoi, match="déjà dans l'équipe \\*\\*Team 2"):
+        L.remplacer_joueur(t, "c1", ("j2a", "J2a"), "X")
+    with pytest.raises(L.ErreurTournoi, match="place réservée"):
+        L.remplacer_joueur(t, "c1", ("r", "R"), "X")
+    with pytest.raises(L.ErreurTournoi, match="vide"):
+        L.remplacer_joueur(t, "c1", ("z", "Zoe"), "   ")
+    assert [j["id"] for j in e["joueurs"]] == ["c1", "j1a"]  # rien n'a bougé

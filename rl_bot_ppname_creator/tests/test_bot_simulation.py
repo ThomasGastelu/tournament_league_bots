@@ -13,7 +13,7 @@ from bot_inscription_manager import logique as L
 from bot_inscription_manager.commandes import (autocomplete_tournoi, texte_modification, tournoi_rl,
                                                tournoi_rl_modify, tournoi_rl_remove, tournoi_rl_remove_team,
                                                tournoi_rl_status, tournoi_rl_status_all,
-                                               tournoi_rl_modify_player)
+                                               tournoi_rl_modify_member, tournoi_rl_modify_player)
 from bot_inscription_manager.inscription import (BoutonAnnuler, BoutonInscription, BoutonRefuser, BoutonValider,
                                                  FicheConfirmation,
                              ConfirmationAnnulation, FicheInscription)
@@ -525,3 +525,27 @@ def test_modify_player_change_le_pseudo_et_previent_le_joueur(monde):
     inter = FausseInteraction(client, j["Admin"])
     lancer(tournoi_rl_modify_player.callback(inter, tournoi_id=tid, joueur=j["Zoe"], pseudo="Z"))
     assert "aucune équipe" in inter.dernier_texte()
+
+
+def test_modify_member_remplace_le_joueur_et_previent_les_deux(monde):
+    client, j = monde
+    tid = creer_tournoi(client, j["Admin"], equipes_max=4)
+    inscrire(client, j["Thomas"], [j["Lucas"]], "Les Tomates", tid)
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_modify_member.callback(inter, tournoi_id=tid, ancien=j["Lucas"], nouveau=j["Zoe"],
+                                             pseudo_jeu="Zoe_RL"))
+    assert "**Lucas** remplacé par **Zoe**" in inter.dernier_texte()
+    assert inter.reponses[-1][1]["ephemeral"] is True
+    assert "remplacé par **Zoe**" in j["Lucas"].mp[-1]
+    assert "à la place de **Lucas**" in j["Zoe"].mp[-1]
+    equipe = client.stockage.charger(tid)["equipes"][0]
+    assert [(p["pseudo"], p["statut"]) for p in equipe["joueurs"]] == [("Thomas", L.CONFIRME), ("Zoe", L.CONFIRME)]
+
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_modify_member.callback(inter, tournoi_id=tid, ancien=j["Thomas"], nouveau=j["Robot"],
+                                             pseudo_jeu="X"))
+    assert "est un bot" in inter.dernier_texte()
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_modify_member.callback(inter, tournoi_id=tid, ancien=j["Thomas"], nouveau=j["Zoe"],
+                                             pseudo_jeu="X"))
+    assert "déjà dans l'équipe" in inter.dernier_texte()
