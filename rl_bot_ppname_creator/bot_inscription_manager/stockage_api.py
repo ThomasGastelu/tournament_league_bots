@@ -30,6 +30,10 @@ log = logging.getLogger(__name__)
 
 DELAI_REPONSE_SECONDES = 10
 MESSAGE_API_INJOIGNABLE = "Le serveur des tournois ne répond pas. Réessaie dans un instant."
+MESSAGE_PAS_ENCORE_DANS_L_API = (
+    "Cette commande ne marche pas encore avec le serveur des tournois : l'API n'a pas de route pour "
+    "modifier ou remplacer un joueur. En attendant, retire l'équipe avec `/tournoi_rl_remove_team` "
+    "et fais-la se réinscrire.")
 MESSAGE_API_REFUSE = ("Le serveur des tournois refuse le bot : vérifie que `BOT_API_KEY` est la même "
                       "dans le `.env` du bot et dans celui de l'API.")
 
@@ -336,6 +340,20 @@ class StockageAPI:
             "POST", f"/tournaments/{tournoi_id}/reservations/{reservation_id}/cancel", {},
             contexte={"numero": reservation_id})
         return self._copier(reponse["tournoi"]), reponse["reservation"], reponse["promues"]
+
+    # --- Joueurs ------------------------------------------------------------ #
+    # /tournoi_rl_modify_player et /tournoi_rl_modify_member : l'API n'a pas encore de route
+    # pour ça. On refuse avec un message clair plutôt que de modifier seulement la copie locale.
+
+    async def modifier_joueur(
+        self, tournoi_id: str, joueur_id: str, *, pseudo: str | None = None, pseudo_jeu: str | None = None,
+    ) -> tuple[dict, dict, dict, list[tuple[str, object, object]]]:
+        raise ErreurAPI(MESSAGE_PAS_ENCORE_DANS_L_API)
+
+    async def remplacer_joueur(
+        self, tournoi_id: str, ancien_id: str, nouveau: tuple[str, str], pseudo_jeu: str,
+    ) -> tuple[dict, dict, dict, dict]:
+        raise ErreurAPI(MESSAGE_PAS_ENCORE_DANS_L_API)
 
     # --- Tâche de chaque minute -------------------------------------------- #
 

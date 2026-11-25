@@ -187,6 +187,26 @@ class StockageFichiers:
             self.sauvegarder(tournoi)
         return tournoi, reservation, promues
 
+    async def modifier_joueur(
+        self, tournoi_id: str, joueur_id: str, *, pseudo: str | None = None, pseudo_jeu: str | None = None,
+    ) -> tuple[dict, dict, dict, list[tuple[str, object, object]]]:
+        async with self.verrou(tournoi_id):
+            tournoi = self._exiger(tournoi_id)
+            equipe, joueur, changements = L.modifier_joueur(
+                tournoi, joueur_id, pseudo=pseudo, pseudo_jeu=pseudo_jeu)
+            if changements:
+                self.sauvegarder(tournoi)
+        return tournoi, equipe, joueur, changements
+
+    async def remplacer_joueur(
+        self, tournoi_id: str, ancien_id: str, nouveau: tuple[str, str], pseudo_jeu: str,
+    ) -> tuple[dict, dict, dict, dict]:
+        async with self.verrou(tournoi_id):
+            tournoi = self._exiger(tournoi_id)
+            equipe, ancien, remplacant = L.remplacer_joueur(tournoi, ancien_id, nouveau, pseudo_jeu)
+            self.sauvegarder(tournoi)
+        return tournoi, equipe, ancien, remplacant
+
     async def echeances(self, maintenant: str) -> list[dict]:
         """Désinscrit les équipes hors délai, rend les réservations échues et ouvre les inscriptions.
 

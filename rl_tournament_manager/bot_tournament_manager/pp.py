@@ -1,7 +1,9 @@
-"""Noms et mots de passe des parties privées : tomato_A, tomato_B, tomato_C… (une lettre par zone).
+"""Noms et mots de passe des parties privées : tomato_<round><zone>.
 
-Zone 1 = tomato_A, zone 2 = tomato_B, etc. ; le mot de passe est le même que le nom.
-Au-delà de 26 zones : tomato_AA, tomato_AB… Chaque round réutilise les mêmes noms.
+Round 1 : tomato_11, tomato_12, tomato_13… ; round 2 : tomato_21, tomato_22… ; round 12 : tomato_121…
+Le mot de passe est le même que le nom.
+À partir de 10 zones, la zone s'écrit sur 2 chiffres pour tout le tournoi (round 1 : tomato_101 … tomato_112,
+round 11 : tomato_1101…), sinon le round 1 zone 11 et le round 11 zone 1 donneraient tous deux tomato_111.
 Les parties de chaque round sont aussi écrites dans data/pp/<id>_ronde_<n>.json.
 """
 
@@ -14,22 +16,21 @@ from pathlib import Path
 PREFIXE = "tomato_"
 
 
-def lettres(numero: int) -> str:
-    """1 → A, 2 → B… 26 → Z, 27 → AA, 28 → AB (comme les colonnes d'un tableur)."""
-    texte = ""
-    while numero > 0:
-        numero, reste = divmod(numero - 1, 26)
-        texte = chr(ord("A") + reste) + texte
-    return texte
+def nom_partie(ronde: int, zone: int, nb_zones: int) -> str:
+    """tomato_<round><zone>, la zone sur autant de chiffres que `nb_zones` (1 → tomato_11, 10 zones → tomato_101)."""
+    largeur = len(str(nb_zones))
+    return f"{PREFIXE}{ronde}{zone:0{largeur}d}"
 
 
-def generer_parties(nombre: int, sortie: Path) -> list[dict]:
-    """Parties privées des `nombre` zones, triées par match (match 1 = zone 1), écrites dans `sortie`.
+def generer_parties(nombre: int, sortie: Path, ronde: int = 1) -> list[dict]:
+    """Parties privées des `nombre` zones du round `ronde`, triées par match (match 1 = zone 1), écrites dans `sortie`.
 
-    Chaque partie : {"match": 1, "nom": "tomato_A", "mot_de_passe": "tomato_A"}.
+    Chaque partie : {"match": 1, "nom": "tomato_11", "mot_de_passe": "tomato_11"}.
     """
-    parties = [{"match": i, "nom": f"{PREFIXE}{lettres(i)}", "mot_de_passe": f"{PREFIXE}{lettres(i)}"}
-               for i in range(1, nombre + 1)]
+    parties = []
+    for i in range(1, nombre + 1):
+        nom = nom_partie(ronde, i, nombre)
+        parties.append({"match": i, "nom": nom, "mot_de_passe": nom})
     sortie = Path(sortie)
     sortie.parent.mkdir(parents=True, exist_ok=True)
     sortie.write_text(json.dumps({"genere_le": datetime.now().isoformat(timespec="seconds"), "parties": parties},

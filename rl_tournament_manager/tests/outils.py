@@ -44,7 +44,7 @@ def ecrire_inscription(dossier: Path, tournoi: dict) -> None:
     (dossier / f"{tournoi['id']}.json").write_text(json.dumps(tournoi, ensure_ascii=False), encoding="utf-8")
 
 
-def faux_pp(nombre: int, sortie: Path) -> list[dict]:
+def faux_pp(nombre: int, sortie: Path, ronde: int = 1) -> list[dict]:
     """Remplace pp.generer_parties (noms reconnaissables dans les tests) : même format de fichier."""
     parties = [{"match": i, "nom": f"tomato_test{i}", "mot_de_passe": f"tomato_test{i}"}
                for i in range(1, nombre + 1)]

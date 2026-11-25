@@ -24,8 +24,9 @@ from bot_inscription_manager.commandes import (autocomplete_tournoi, tournoi_rl,
 from bot_inscription_manager.inscription import BoutonAnnuler, BoutonRefuser, expirer_inscriptions
 from bot_inscription_manager.main import choisir_stockage
 from bot_inscription_manager.stockage import StockageFichiers
-from bot_inscription_manager.stockage_api import (MESSAGE_API_INJOIGNABLE, MESSAGE_API_REFUSE, ErreurAPI,
-                                                  StockageAPI, traduire_erreur)
+from bot_inscription_manager.stockage_api import (MESSAGE_API_INJOIGNABLE, MESSAGE_API_REFUSE,
+                                                  MESSAGE_PAS_ENCORE_DANS_L_API, ErreurAPI, StockageAPI,
+                                                  traduire_erreur)
 from tests.test_bot_simulation import (FausseInteraction, FauxClient, FauxMessage, FauxUtilisateur, confirmer,
                                        inscrire, lancer)
 
@@ -145,6 +146,16 @@ def test_api_injoignable():
     for _ in range(2):
         with pytest.raises(ErreurAPI, match="ne répond pas"):
             lancer(api.lire("1573714661659123762"))
+
+
+def test_modifier_ou_remplacer_un_joueur_est_refuse_clairement_sans_appeler_l_api():
+    api = FausseAPI([])
+    with pytest.raises(ErreurAPI) as erreur:
+        lancer(api.modifier_joueur("1573714661659123762", "1", pseudo="Nouveau"))
+    assert str(erreur.value) == MESSAGE_PAS_ENCORE_DANS_L_API
+    with pytest.raises(ErreurAPI, match="pas encore"):
+        lancer(api.remplacer_joueur("1573714661659123762", "1", ("2", "Remplaçant"), "Pseudo"))
+    assert api.requetes == []
 
 
 def test_modification_ignore_le_recalcul_de_la_liste_d_attente():

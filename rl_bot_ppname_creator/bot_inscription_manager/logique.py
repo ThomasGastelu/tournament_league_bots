@@ -30,6 +30,7 @@ LONGUEUR_MAX_CASHPRIZE = 100
 EQUIPES_MAX_LIMITE = 128
 LONGUEUR_MAX_NOM_EQUIPE = 32
 LONGUEUR_MAX_PSEUDO_JEU = 32
+LONGUEUR_MAX_PSEUDO = 32  # pseudo Discord enregistré dans l'équipe
 AVERTISSEMENT_PSEUDO_JEU = "⚠️ Exactement le même que dans le jeu, sinon on ne pourra pas t'évaluer."
 # Temps laissé aux coéquipiers pour confirmer, sinon l'équipe est désinscrite.
 # Valeur par défaut : au démarrage, main.py la remplace par DELAI_CONFIRMATION_MINUTES du fichier .env.
@@ -559,6 +560,84 @@ def ouvrir_inscriptions(tournoi: dict, maintenant: str) -> bool:
 # --------------------------------------------------------------------------- #
 # Modification par un admin
 # --------------------------------------------------------------------------- #
+
+
+def modifier_joueur(
+    tournoi: dict,
+    joueur_id: str,
+    *,
+    pseudo: str | None = None,
+    pseudo_jeu: str | None = None,
+) -> tuple[dict, dict, list[tuple[str, object, object]]]:
+    """Change le pseudo Discord et/ou le pseudo Rocket League d'un joueur inscrit (None = inchangé).
+
+    Le joueur doit être dans une équipe active (inscrite ou en liste d'attente).
+    Tout est vérifié avant de toucher au tournoi : en cas d'erreur, il reste intact.
+    Retourne (équipe, joueur, changements [(champ, ancienne valeur, nouvelle valeur)]).
+    """
+    if pseudo is None and pseudo_jeu is None:
+        raise ErreurTournoi("Indique au moins un champ à modifier : pseudo ou pseudo_jeu.")
+    equipe = equipe_du_joueur(tournoi, joueur_id)
+    if equipe is None:
+        raise ErreurTournoi("Ce joueur n'est dans aucune équipe inscrite ou en liste d'attente de ce tournoi.")
+    joueur = joueur_dans_equipe(equipe, joueur_id)
+
+    nouvelles: dict[str, str] = {}
+    if pseudo is not None:
+        nouvelles["pseudo"] = _texte_obligatoire(pseudo, "pseudo", LONGUEUR_MAX_PSEUDO)
+    if pseudo_jeu is not None:
+        if joueur["statut"] != CONFIRME:
+            raise ErreurTournoi(
+                f"**{joueur['pseudo']}** n'a pas encore confirmé sa participation : "
+                "il donnera son pseudo Rocket League en confirmant.")
+        nouvelles["pseudo_jeu"] = nettoyer_pseudo_jeu(pseudo_jeu)
+
+    changements = [(champ, joueur.get(champ), valeur) for champ, valeur in nouvelles.items()
+                   if joueur.get(champ) != valeur]
+    for champ, _ancienne, valeur in changements:
+        joueur[champ] = valeur
+        if joueur_id == equipe["capitaine_id"] and isinstance(equipe.get("capitaine"), dict):
+            equipe["capitaine"][champ] = valeur
+    return equipe, joueur, changements
+
+
+def remplacer_joueur(
+    tournoi: dict,
+    ancien_id: str,
+    nouveau: tuple[str, str],
+    pseudo_jeu: str,
+) -> tuple[dict, dict, dict]:
+    """Remplace un joueur d'une équipe active par un autre membre (tuple (id, pseudo Discord)).
+
+    Le nouveau joueur prend la même place dans l'équipe, avec son pseudo Rocket League
+    donné par l'admin : il est directement confirmé. Si l'ancien joueur était capitaine,
+    le nouveau devient capitaine. Tout est vérifié avant de toucher au tournoi.
+    Retourne (équipe, ancien joueur, nouveau joueur).
+    """
+    nouveau_id, nouveau_pseudo = nouveau
+    pseudo_jeu = nettoyer_pseudo_jeu(pseudo_jeu)
+    equipe = equipe_du_joueur(tournoi, ancien_id)
+    if equipe is None:
+        raise ErreurTournoi("Ce joueur n'est dans aucune équipe inscrite ou en liste d'attente de ce tournoi.")
+    if nouveau_id == ancien_id:
+        raise ErreurTournoi("Le nouveau joueur est le même que l'ancien.")
+    deja = equipe_du_joueur(tournoi, nouveau_id)
+    if deja is not None:
+        raise ErreurTournoi(f"**{nouveau_pseudo}** est déjà dans l'équipe **{deja['nom']}** pour ce tournoi.")
+    if reservation_du_capitaine(tournoi, nouveau_id) is not None:
+        raise ErreurTournoi(
+            f"**{nouveau_pseudo}** a une place réservée dans ce tournoi. "
+            "Annule-la d'abord avec `/tournoi_rl_unreserve`.")
+
+    index = next(i for i, j in enumerate(equipe["joueurs"]) if j["id"] == ancien_id)
+    ancien = equipe["joueurs"][index]
+    remplacant = {"id": nouveau_id, "pseudo": nouveau_pseudo, "pseudo_jeu": pseudo_jeu, "statut": CONFIRME}
+    equipe["joueurs"][index] = remplacant
+    if equipe["capitaine_id"] == ancien_id:
+        equipe["capitaine_id"] = nouveau_id
+        equipe["capitaine"] = {"pseudo": nouveau_pseudo, "pseudo_jeu": pseudo_jeu}
+    return equipe, ancien, remplacant
+
 
 CHAMPS_MODIFIABLES = {"titre": "Titre", "cashprize": "Cashprize", "equipes_max": "Équipes max"}
 

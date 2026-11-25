@@ -7,8 +7,11 @@
 | `/tournoi_rl titre cashprize joueurs_par_equipe equipes_max date [delay]` | admins | Poste l'annonce avec le bouton **S'inscrire** dans le salon. `delay` = minutes avant l'ouverture des inscriptions (0 par défaut, 10080 max), pour avoir le temps de réserver des places. |
 | `/tournoi_rl_modify id [titre] [cashprize] [equipes_max]` | admins | Modifie le titre, le cashprize et/ou le nombre maximum d'équipes (au moins un des trois). L'annonce est mise à jour. |
 | `/tournoi_rl_status id` | tout le monde | Équipes inscrites, joueurs qui n'ont pas validé, liste d'attente (réponse visible par toi seul). |
+| `/tournoi_rl_status_all id` | admins | Même contenu que `/tournoi_rl_status`, mais posté dans le salon et visible par tout le monde. |
 | `/tournoi_rl_reserve id capitaine nom duree` | admins | Réserve une place pour l'équipe de `capitaine` (invités, partenaires) pendant `duree` minutes (30 jours max). Le capitaine est prévenu en MP. |
 | `/tournoi_rl_unreserve id reservation` | admins | Annule une place réservée (`Rn` dans `/tournoi_rl_status`) : elle est rendue aux autres équipes. |
+| `/tournoi_rl_modify_player id joueur [pseudo_jeu] [pseudo]` | admins | Change le pseudo Rocket League et/ou le pseudo affiché d'un joueur inscrit ou en liste d'attente (au moins un des deux). Le pseudo Rocket League ne se change que pour un joueur qui a déjà confirmé. Le joueur est prévenu en MP. Sans effet sur un tournoi déjà lancé par `tournament_manager`. |
+| `/tournoi_rl_modify_member id ancien nouveau pseudo_jeu` | admins | Remplace un joueur d'une équipe (inscrite ou en liste d'attente) par un autre membre du serveur. Le nouveau joueur est directement confirmé avec le pseudo Rocket League donné ; si l'ancien était capitaine, le nouveau le devient. Les deux joueurs sont prévenus en MP. Sans effet sur un tournoi déjà lancé par `tournament_manager`. |
 | `/tournoi_rl_remove_team id team_id` | admins | Retire une équipe et fait monter la première équipe de la liste d'attente. |
 | `/tournoi_rl_remove id` | admins | Annule et efface le tournoi (après confirmation) : annonce supprimée, joueurs prévenus en MP, fichier JSON effacé. |
 
@@ -53,6 +56,7 @@ Avec `API_URL` et `BOT_API_KEY` dans le `.env`, le bot enregistre tout dans la b
 - Chaque minute, le bot appelle `POST /api/bot/maintenance/tick` : l'API désinscrit les équipes hors délai, rend les réservations échues et ouvre les inscriptions ; le bot envoie les MP et met les annonces à jour.
 - **`tournament_manager` lit toujours `data/tournois/<id>.json`** : le bot y écrit une copie de chaque tournoi à chaque changement, et recopie tous les tournois du serveur (`GUILD_ID`) au démarrage. Ces fichiers ne sont plus la référence : ne les modifie pas à la main.
 - Si l'API ne répond pas, le joueur reçoit « Le serveur des tournois ne répond pas. Réessaie dans un instant. » et rien n'est enregistré.
+- `/tournoi_rl_modify_player` et `/tournoi_rl_modify_member` ne marchent pas encore avec l'API (pas de route pour modifier ou remplacer un joueur) : l'admin reçoit un message qui le dit, et rien n'est modifié. Elles marchent avec les fichiers JSON (sans `API_URL`).
 
 ### Passer des fichiers JSON à la base (une seule fois)
 

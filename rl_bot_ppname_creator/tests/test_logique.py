@@ -408,3 +408,76 @@ def test_changer_le_delai_ne_touche_que_les_nouvelles_equipes(monkeypatch):
         L.verifier_peut_confirmer(t, e2["id"], "j2a", apres(6))
     expirees, _ = L.expirer_equipes(t, apres(6))
     assert expirees == [e2]
+
+
+def test_modifier_joueur_change_les_pseudos_du_capitaine():
+    t = tournoi()
+    e = inscrire(t, 1)
+    equipe, joueur, changements = L.modifier_joueur(t, "c1", pseudo="  Capi  ", pseudo_jeu=" Capi_RL ")
+    assert equipe is e and joueur["pseudo"] == "Capi" and joueur["pseudo_jeu"] == "Capi_RL"
+    assert changements == [("pseudo", "C1", "Capi"), ("pseudo_jeu", "C1_RL", "Capi_RL")]
+    # La copie « capitaine » de l'équipe suit aussi.
+    assert e["capitaine"] == {"pseudo": "Capi", "pseudo_jeu": "Capi_RL"}
+
+
+def test_modifier_joueur_coequipier_et_rien_a_changer():
+    t = tournoi()
+    e = inscrire(t, 1)
+    L.confirmer_joueur(t, e["id"], "j1a", "Lucas", T0)
+    _, joueur, changements = L.modifier_joueur(t, "j1a", pseudo_jeu="Lucas_Pro")
+    assert changements == [("pseudo_jeu", "Lucas", "Lucas_Pro")] and joueur["pseudo_jeu"] == "Lucas_Pro"
+    assert e["capitaine"]["pseudo_jeu"] == "C1_RL"
+    assert L.modifier_joueur(t, "j1a", pseudo_jeu="Lucas_Pro")[2] == []
+
+
+def test_modifier_joueur_refuse():
+    t = tournoi()
+    e = inscrire(t, 1)
+    with pytest.raises(L.ErreurTournoi, match="au moins un champ"):
+        L.modifier_joueur(t, "c1")
+    with pytest.raises(L.ErreurTournoi, match="aucune équipe"):
+        L.modifier_joueur(t, "intrus", pseudo="X")
+    with pytest.raises(L.ErreurTournoi, match="pas encore confirmé"):
+        L.modifier_joueur(t, "j1a", pseudo_jeu="X")
+    with pytest.raises(L.ErreurTournoi, match="maximum 32"):
+        L.modifier_joueur(t, "c1", pseudo="ok", pseudo_jeu="x" * 33)
+    assert L.joueur_dans_equipe(e, "c1")["pseudo"] == "C1"  # rien n'a bougé
+    L.annuler_equipe(t, e["id"], "test", T0)
+    with pytest.raises(L.ErreurTournoi, match="aucune équipe"):
+        L.modifier_joueur(t, "c1", pseudo="X")
+
+
+def test_remplacer_un_coequipier_en_attente():
+    t = tournoi()
+    e = inscrire(t, 1)
+    equipe, ancien, nouveau = L.remplacer_joueur(t, "j1a", ("z", "Zoe"), "  Zoe_RL ")
+    assert equipe is e and ancien["id"] == "j1a"
+    assert e["joueurs"][1] == {"id": "z", "pseudo": "Zoe", "pseudo_jeu": "Zoe_RL", "statut": L.CONFIRME}
+    assert L.equipe_confirmee(e) and e["capitaine_id"] == "c1"
+    assert L.equipe_du_joueur(t, "j1a") is None  # l'ancien peut se réinscrire ailleurs
+
+
+def test_remplacer_le_capitaine():
+    t = tournoi()
+    e = inscrire(t, 1)
+    L.remplacer_joueur(t, "c1", ("z", "Zoe"), "Zoe_RL")
+    assert e["capitaine_id"] == "z" and e["capitaine"] == {"pseudo": "Zoe", "pseudo_jeu": "Zoe_RL"}
+    assert e["joueurs"][0]["id"] == "z"
+
+
+def test_remplacer_joueur_refuse():
+    t = tournoi(equipes_max=3)
+    e = inscrire(t, 1)
+    inscrire(t, 2)
+    L.reserver_place(t, nom="Invités", capitaine=("r", "R"), duree_minutes=60, cree_par="9", maintenant=T0)
+    with pytest.raises(L.ErreurTournoi, match="aucune équipe"):
+        L.remplacer_joueur(t, "intrus", ("z", "Zoe"), "Zoe_RL")
+    with pytest.raises(L.ErreurTournoi, match="même que l'ancien"):
+        L.remplacer_joueur(t, "c1", ("c1", "C1"), "C1_RL")
+    with pytest.raises(L.ErreurTournoi, match="déjà dans l'équipe \\*\\*Team 2"):
+        L.remplacer_joueur(t, "c1", ("j2a", "J2a"), "X")
+    with pytest.raises(L.ErreurTournoi, match="place réservée"):
+        L.remplacer_joueur(t, "c1", ("r", "R"), "X")
+    with pytest.raises(L.ErreurTournoi, match="vide"):
+        L.remplacer_joueur(t, "c1", ("z", "Zoe"), "   ")
+    assert [j["id"] for j in e["joueurs"]] == ["c1", "j1a"]  # rien n'a bougé

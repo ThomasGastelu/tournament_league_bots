@@ -45,7 +45,7 @@ Un bouton cliqué après le délai répond « le délai est passé ». Le délai
 **Zones** : il y a une zone par match, soit `nombre d'équipes / 2` (8 équipes → 4 zones). La zone 1 est la plus basse, la dernière est la **zone haute ⭐**.
 
 1. **Round 1** : les équipes sont tirées au hasard et placées deux par deux dans les zones.
-2. Le bot donne une partie privée par zone : **tomato_A** en zone 1, **tomato_B** en zone 2, **tomato_C** en zone 3, etc. Le mot de passe est le même que le nom, et chaque round réutilise les mêmes noms (au-delà de 26 zones : tomato_AA, tomato_AB…).
+2. Le bot donne une partie privée par zone, nommée `tomato_` + numéro du round + numéro de la zone : au round 1, **tomato_11** en zone 1, **tomato_12** en zone 2, **tomato_13** en zone 3, etc. ; au round 2, **tomato_21**, **tomato_22**… ; au round 12, **tomato_121**… Le mot de passe est le même que le nom. À partir de 10 zones, la zone s'écrit sur 2 chiffres pour tout le tournoi (round 1 : tomato_101 … tomato_112), pour éviter les doublons.
 3. **Tous les matchs se jouent en même temps.** Dès le début du round, pour chaque zone :
    - le capitaine de l'équipe A reçoit : « Vous devez créer la partie privée avec le nom = … et le mot de passe = … », avec le bouton **✅ Partie privée créée** ;
    - les autres joueurs des deux équipes reçoivent leur match, **sans le nom ni le mot de passe** : ils les reçoivent seulement quand le capitaine a créé la partie (MP « ✅ … a créé la partie privée ») ;
@@ -171,7 +171,7 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
 |---|---|
 | `../rl_bot_ppname_creator/data/tournois/<id>.json` | Inscriptions (lues, jamais modifiées). Seules les équipes `inscrite` dont tous les joueurs ont confirmé participent. |
 | `data/tournois/<id>.json` | **État et résultats** : équipes (points, victoires, buts, historique), rounds (`rondes`), matchs, scores, déclarations. |
-| `data/pp/<id>_ronde_<n>.json` | Parties privées de chaque round (tomato_A, tomato_B…). |
+| `data/pp/<id>_ronde_<n>.json` | Parties privées de chaque round (tomato_11, tomato_12… au round 1). |
 | `data/archives/` | Ancien fichier de résultats quand on relance un tournoi déjà terminé ou arrêté. |
 | `data/salons/<id>.json` | `/start_tournament_init` : salon de discussion, équipes retenues (`equipes`) et validation des participations (`confirmation` : `delai_minutes`, `fin`, `terminee`, `validees`, `attente`, `perdues`, `promues`). |
 

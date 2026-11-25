@@ -95,7 +95,7 @@ Spécifique à `bot_tournament_manager` :
 - `declaration.py` : boutons « ✅ Partie privée créée », « 📝 Déclarer le score » (`DynamicItem`, custom_id = tournoi/round/zone/équipe) et « ✅ Valider ma participation » (`rlconf:<tournoi>:<équipe>`).
 - Validation des participations (`/start_tournament_init delai_confirmation`) : MP avec bouton aux inscrits (un joueur suffit par équipe), MP de position à la liste d'attente ; à la fin du délai (`confirmation.fin` dans `data/salons/<id>.json`, tâche relancée par `reprendre()`), les équipes sans validation sont remplacées par la liste d'attente dans l'ordre (`L.terminer_confirmation`) ; les équipes montées reçoivent le même bouton et doivent valider dans un nouveau délai identique, et ainsi de suite jusqu'à ce que plus aucune place ne change de main. `/start_tournament_rl` refuse sans init ou pendant le délai et prend les équipes de `L.equipes_du_lancement`. `/start_tournament_init_status` (lecture seule) affiche `L.bilan_validations` (validées, à valider, perdues, liste d'attente). Dans les tests, `outils.demarrer(g, …)` écrit un init sans validation avant `g.demarrer`.
 - `journal.py` : recopie avertissements et erreurs dans `LOG_CHANNEL` (regroupés ; `extra=HORS_JOURNAL` pour ne pas boucler).
-- `pp.py` : parties privées `tomato_A`, `tomato_B`… (une lettre par zone, mot de passe = nom), écrites dans `data/pp/`.
+- `pp.py` : parties privées `tomato_<round><zone>` (`tomato_11`, `tomato_12`… au round 1, `tomato_21`… au round 2 ; zone sur 2 chiffres à partir de 10 zones ; mot de passe = nom), écrites dans `data/pp/`.
 - Fin de round : `messagerie.resultats()` poste le récap (`M.embeds_resultats_ronde`) dans `SALON_RESULTATS`, sinon dans le salon des annonces.
 
 ## Tests
