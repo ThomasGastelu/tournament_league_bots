@@ -5,10 +5,10 @@
 | Commande | Qui | Ce qu'elle fait |
 |---|---|---|
 | `/tournoi_rl titre cashprize joueurs_par_equipe equipes_max date start_time [delay]` | admins | Poste l'annonce avec le bouton **S'inscrire** dans le salon. `date` = jour du tournoi au format `JJ/MM/AAAA` (ex : `06/12/2026`), `start_time` = heure de début au format `HH:MM`, heure de Paris (ex : `20:30`, `20h30` accepté aussi). Une date ou une heure invalide, ou un début déjà passé, est refusé. `delay` = minutes avant l'ouverture des inscriptions (0 par défaut, 10080 max), pour avoir le temps de réserver des places. |
-| `/tournoi_rl_modify id [titre] [cashprize] [equipes_max]` | admins | Modifie le titre, le cashprize et/ou le nombre maximum d'équipes (au moins un des trois). L'annonce est mise à jour. |
+| `/tournoi_rl_modify id [titre] [cashprize] [equipes_max] [date] [start_time]` | admins | Modifie le titre, le cashprize, le nombre maximum d'équipes, la date (`JJ/MM/AAAA`) et/ou l'heure de début (`HH:MM`, heure de Paris), au moins un champ. L'annonce est mise à jour. |
 | `/tournoi_rl_status id` | tout le monde | Équipes inscrites, joueurs qui n'ont pas validé, liste d'attente (réponse visible par toi seul). |
-| `/tournoi_rl_status_all id` | admins | Même contenu que `/tournoi_rl_status`, mais posté dans le salon et visible par tout le monde. |
-| `/tournoi_rl_reserve id capitaine nom duree` | admins | Réserve une place pour l'équipe de `capitaine` (invités, partenaires) pendant `duree` minutes (30 jours max). Le capitaine est prévenu en MP. |
+| `/tournoi_rl_status_all id` | admins | Comme `/tournoi_rl_status`, mais posté dans le salon et visible par tout le monde, sans les places réservées (🔒) ni les ✅ de confirmation. |
+| `/tournoi_rl_reserve id capitaine nom [duree]` | admins | Réserve une place pour l'équipe de `capitaine` (invités, partenaires) pendant `duree` minutes (30 jours max). Sans `duree`, la place est gardée sans limite, jusqu'à ce que le capitaine l'utilise ou `/tournoi_rl_unreserve`. Le capitaine est prévenu en MP. |
 | `/tournoi_rl_unreserve id reservation` | admins | Annule une place réservée (`Rn` dans `/tournoi_rl_status`) : elle est rendue aux autres équipes. |
 | `/tournoi_rl_modify_player id joueur [pseudo_jeu] [pseudo]` | admins | Change le pseudo Rocket League et/ou le pseudo affiché d'un joueur inscrit ou en liste d'attente (au moins un des deux). Le pseudo Rocket League ne se change que pour un joueur qui a déjà confirmé. Le joueur est prévenu en MP. Sans effet sur un tournoi déjà lancé par `tournament_manager`. |
 | `/tournoi_rl_modify_member id ancien nouveau pseudo_jeu` | admins | Remplace un joueur d'une équipe (inscrite ou en liste d'attente) par un autre membre du serveur. Le nouveau joueur est directement confirmé avec le pseudo Rocket League donné ; si l'ancien était capitaine, le nouveau le devient. Les deux joueurs sont prévenus en MP. Sans effet sur un tournoi déjà lancé par `tournament_manager`. |
@@ -28,7 +28,7 @@ Les `id` et `team_id` sont proposés en autocomplétion. Le `team_id` est le `#n
 
 Les données sont dans la base de données (si `API_URL` est rempli, voir [Base de données](#base-de-données)) ou dans `data/tournois/<id>.json` (un fichier par tournoi). Le format est le même dans les deux cas. La date est enregistrée au format ISO : `"date": "2026-12-06"` et `"start_time": "20:30"` (heure de Paris). Les anciens tournois gardent leur date en texte libre (ex : `"6 septembre"`, sans `start_time`) : elle est affichée telle quelle. Champs ajoutés pour l'ouverture différée et les réservations (absents des anciens fichiers, qui restent valables) :
 - `ouverture_inscriptions` : heure d'ouverture, remise à `null` une fois les inscriptions ouvertes ;
-- `reservations` : liste de `{id, nom, capitaine_id, capitaine, statut (active / utilisee / expiree / annulee), cree_par, cree_le, expire_le, equipe_id, terminee_le}` ;
+- `reservations` : liste de `{id, nom, capitaine_id, capitaine, statut (active / utilisee / expiree / annulee), cree_par, cree_le, expire_le (`null` = sans limite de durée), equipe_id, terminee_le}` ;
 - `reservation_id` sur une équipe inscrite grâce à une réservation.
 
 ## Ouverture différée et places réservées
@@ -36,6 +36,7 @@ Les données sont dans la base de données (si `API_URL` est rempli, voir [Base 
 - Avec `delay` (ex : `/tournoi_rl … delay: 60`), l'annonce est postée tout de suite mais affiche « 🕒 Les inscriptions ouvrent dans 1 heure ». Avant cette heure, le bouton **S'inscrire** répond l'heure d'ouverture. À l'heure dite, le bot met l'annonce à jour tout seul (vérification chaque minute). Les inscriptions doivent ouvrir avant le début du tournoi (`date` + `start_time`), sinon la commande est refusée.
 - `/tournoi_rl_reserve` bloque une place libre pour un capitaine précis. Les places réservées sont retirées des places ouvertes à tous : avec `equipes_max = 16` et 2 réservations, seules 14 places partent avant la liste d'attente. L'annonce n'affiche pas les places réservées (compteur `3/16`) : elles sont listées dans `/tournoi_rl_status`.
 - Le capitaine réservé s'inscrit avec le bouton **S'inscrire** habituel, **même avant l'ouverture et même si le tournoi est complet** : son équipe prend la place réservée (marquée 🔒 dans `/tournoi_rl_status`). Ses coéquipiers doivent confirmer comme d'habitude, sinon l'équipe est désinscrite et la place va à la liste d'attente.
+- Sans `duree`, la réservation n'a pas d'échéance : elle reste jusqu'à ce que le capitaine s'inscrive ou qu'un admin l'annule avec `/tournoi_rl_unreserve`.
 - Si le capitaine ne s'est pas inscrit avant l'échéance, la place est rendue automatiquement : la première équipe de la liste d'attente monte et le capitaine est prévenu en MP. Même chose avec `/tournoi_rl_unreserve`.
 - Une réservation ne retire jamais une équipe déjà inscrite : s'il n'y a plus de place libre, augmente d'abord `equipes_max`.
 - Un capitaine ne peut avoir qu'une réservation par tournoi, et pas s'il est déjà dans une équipe.
@@ -45,7 +46,8 @@ Les données sont dans la base de données (si `API_URL` est rempli, voir [Base 
 - Seuls les champs remplis changent. La liste d'attente suit toujours : `equipes_max × 4`.
 - **Augmenter `equipes_max`** : les premières équipes de la liste d'attente montent sur les nouvelles places et sont prévenues en MP. Si le tournoi était complet, le bouton **S'inscrire** redevient cliquable.
 - **Baisser `equipes_max`** : impossible en dessous du nombre d'équipes déjà inscrites plus les places réservées (aucune équipe n'est retirée automatiquement). Retire d'abord des équipes avec `/tournoi_rl_remove_team` ou des réservations avec `/tournoi_rl_unreserve`.
-- Changer le titre ou le cashprize n'envoie pas de MP : seule l'annonce est mise à jour (les anciens MP gardent l'ancien texte).
+- **Changer `date` ou `start_time`** : mêmes formats qu'à la création (`JJ/MM/AAAA`, `HH:MM` heure de Paris). Un seul des deux suffit, l'autre garde sa valeur. Le nouveau début doit être dans le futur, et après l'ouverture des inscriptions si `delay` a été utilisé. Pour un ancien tournoi à date en texte libre, il faut donner les deux.
+- Changer le titre, le cashprize, la date ou l'heure n'envoie pas de MP : seule l'annonce est mise à jour (les anciens MP gardent l'ancien texte).
 - ⚠️ Une fois le tournoi lancé avec `rl_tournament_manager`, les modifications ne changent plus le tournoi en cours (il a copié le titre et les équipes au lancement). Les équipes promues à ce moment-là ne jouent pas.
 
 ## Base de données
@@ -57,7 +59,9 @@ Avec `API_URL` et `BOT_API_KEY` dans le `.env`, le bot enregistre tout dans la b
 - **`tournament_manager` lit toujours `data/tournois/<id>.json`** : le bot y écrit une copie de chaque tournoi à chaque changement, et recopie tous les tournois du serveur (`GUILD_ID`) au démarrage. Ces fichiers ne sont plus la référence : ne les modifie pas à la main.
 - `POST /api/bot/tournaments` reçoit `"date": "AAAA-MM-JJ"` et `"start_time": "HH:MM"` (heure de Paris), et les routes qui renvoient un tournoi doivent les renvoyer sous la même forme (`GET /tournaments?serveur_id=…` aussi, pour l'autocomplétion).
 - Si l'API ne répond pas, le joueur reçoit « Le serveur des tournois ne répond pas. Réessaie dans un instant. » et rien n'est enregistré.
-- `/tournoi_rl_modify_player` et `/tournoi_rl_modify_member` ne marchent pas encore avec l'API (pas de route pour modifier ou remplacer un joueur) : l'admin reçoit un message qui le dit, et rien n'est modifié. Elles marchent avec les fichiers JSON (sans `API_URL`).
+- `/tournoi_rl_modify` envoie `date` et `start_time` au format ISO à `PATCH /api/bot/tournaments/:id`. `/tournoi_rl_reserve` sans `duree` envoie `"duree_minutes": null`.
+- `/tournoi_rl_modify_player` appelle `PATCH /api/bot/tournaments/:id/players/:joueurId` et `/tournoi_rl_modify_member` appelle `POST /api/bot/tournaments/:id/players/:joueurId/replace`. Le bot vérifie d'abord avec les mêmes règles que sans API.
+- Si l'API n'a pas encore une de ces routes (404 inconnu), l'admin reçoit « Le serveur des tournois ne sait pas encore faire ça » et rien n'est modifié.
 
 ### Passer des fichiers JSON à la base (une seule fois)
 

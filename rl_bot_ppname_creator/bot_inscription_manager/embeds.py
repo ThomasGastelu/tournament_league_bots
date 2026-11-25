@@ -62,35 +62,39 @@ def pseudo_jeu_affiche(joueur: dict) -> str:
     return f"`{pseudo_jeu.replace('`', 'ˋ')}`"
 
 
-def _ligne_joueurs(equipe: dict) -> str:
+def _ligne_joueurs(equipe: dict, public: bool = False) -> str:
     morceaux = []
     for joueur in equipe["joueurs"]:
         couronne = "👑 " if joueur["id"] == equipe["capitaine_id"] else ""
         if joueur["statut"] == L.CONFIRME:
-            morceaux.append(f"{couronne}{joueur['pseudo']} (🎮 {pseudo_jeu_affiche(joueur)}) ✅")
+            coche = "" if public else " ✅"
+            morceaux.append(f"{couronne}{joueur['pseudo']} (🎮 {pseudo_jeu_affiche(joueur)}){coche}")
         else:
             morceaux.append(f"{couronne}{joueur['pseudo']} ⏳")
     return ", ".join(morceaux)
 
 
-def _ligne_equipe(equipe: dict, prefixe: str = "") -> str:
-    ligne = f"{prefixe}`#{equipe['id']}` **{equipe['nom']}** — {_ligne_joueurs(equipe)}"
+def _ligne_equipe(equipe: dict, prefixe: str = "", public: bool = False) -> str:
+    ligne = f"{prefixe}`#{equipe['id']}` **{equipe['nom']}** — {_ligne_joueurs(equipe, public)}"
     if equipe.get("confirmer_avant") and not L.equipe_confirmee(equipe):
         horodatage = int(L.lire_date(equipe["confirmer_avant"]).timestamp())
         ligne += f" · ⏰ désinscrite <t:{horodatage}:R> sans confirmation"
-    if equipe.get("reservation_id"):
+    if equipe.get("reservation_id") and not public:
         ligne += " · 🔒 place réservée"
     return ligne
 
 
-def embeds_status(tournoi: dict) -> list[discord.Embed]:
+def embeds_status(tournoi: dict, public: bool = False) -> list[discord.Embed]:
+    """Embeds de /tournoi_rl_status. `public` (/tournoi_rl_status_all) : sans les places réservées
+    (ni la section, ni « 🔒 place réservée » sur les équipes) et sans les ✅ de confirmation."""
     inscrites = L.equipes_inscrites(tournoi)
     attente = L.liste_attente(tournoi)
 
     lignes = [
         f"💰 Cashprize : **{tournoi['cashprize']}**  ·  👥 Format : **{L.format_match(tournoi['joueurs_par_equipe'])}**"
         f"  ·  📅 Date : **{L.date_affichee(tournoi)}**",
-        "*✅ = a confirmé · ⏳ = n'a pas encore confirmé · 🎮 = pseudo Rocket League · `#n` = team_id*",
+        ("*⏳ = n'a pas encore confirmé · 🎮 = pseudo Rocket League · `#n` = team_id*" if public else
+         "*✅ = a confirmé · ⏳ = n'a pas encore confirmé · 🎮 = pseudo Rocket League · `#n` = team_id*"),
     ]
     if tournoi.get("ouverture_inscriptions"):
         horodatage = _horodatage(tournoi["ouverture_inscriptions"])
@@ -99,15 +103,16 @@ def embeds_status(tournoi: dict) -> list[discord.Embed]:
         "",
         f"**🎟️ Équipes inscrites ({len(inscrites)}/{tournoi['equipes_max']})**",
     ]
-    lignes += [_ligne_equipe(e) for e in inscrites] or ["*Aucune équipe pour l'instant.*"]
-    reservations = L.reservations_actives(tournoi)
+    lignes += [_ligne_equipe(e, public=public) for e in inscrites] or ["*Aucune équipe pour l'instant.*"]
+    reservations = [] if public else L.reservations_actives(tournoi)
     if reservations:
         lignes += ["", f"**🔒 Places réservées ({len(reservations)})**"]
         lignes += [f"`R{r['id']}` **{r['nom']}** — capitaine {r['capitaine']} · "
-                   f"⌛ rendue <t:{_horodatage(r['expire_le'])}:R> si personne ne s'inscrit"
+                   + (f"⌛ rendue <t:{_horodatage(r['expire_le'])}:R> si personne ne s'inscrit"
+                      if r.get("expire_le") else "♾️ sans limite de durée")
                    for r in reservations]
     lignes += ["", f"**⏳ Liste d'attente ({len(attente)}/{tournoi['liste_attente_max']})**"]
-    lignes += [_ligne_equipe(e, f"{i}. ") for i, e in enumerate(attente, start=1)] or ["*Vide.*"]
+    lignes += [_ligne_equipe(e, f"{i}. ", public) for i, e in enumerate(attente, start=1)] or ["*Vide.*"]
 
     # Découpe en plusieurs embeds si la liste est trop longue pour un seul.
     blocs, courant = [], ""

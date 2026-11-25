@@ -494,8 +494,28 @@ def test_status_all_visible_par_tous(monde):
     for (_, kw_public), (_, kw_prive) in zip(public.reponses, prive.reponses):
         assert kw_prive["ephemeral"] is True
         assert not kw_public.get("ephemeral", False)
-        assert kw_public["embed"].description == kw_prive["embed"].description
     assert "Les Tomates" in public.reponses[0][1]["embed"].description
+
+
+def test_status_all_cache_les_places_reservees_et_les_coches(monde):
+    from bot_inscription_manager.commandes import tournoi_rl_reserve
+    client, j = monde
+    tid = creer_tournoi(client, j["Admin"], equipes_max=4)
+    lancer_sans_blocage(tournoi_rl_reserve.callback(FausseInteraction(client, j["Admin"]), tournoi_id=tid,
+                                                    capitaine=j["Thomas"], nom="Invités"))
+    inscrire(client, j["Thomas"], [j["Lucas"]], "Les Tomates", tid)  # sur sa place réservée
+    lancer_sans_blocage(tournoi_rl_reserve.callback(FausseInteraction(client, j["Admin"]), tournoi_id=tid,
+                                                    capitaine=j["Hugo"], nom="Partenaire"))
+    prive = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_status.callback(prive, tournoi_id=tid))
+    texte_prive = prive.reponses[0][1]["embed"].description
+    assert "🔒 Places réservées (1)" in texte_prive and "🔒 place réservée" in texte_prive and "✅" in texte_prive
+
+    public = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_status_all.callback(public, tournoi_id=tid))
+    texte = public.reponses[0][1]["embed"].description
+    assert "Les Tomates" in texte and "Thomas (🎮 `Thomas_RL`), Lucas ⏳" in texte
+    assert "🔒" not in texte and "✅" not in texte and "Partenaire" not in texte
 
 
 def test_status_all_tournoi_inconnu(monde):
@@ -564,3 +584,30 @@ def test_tournoi_rl_refuse_date_ou_heure_invalide(monde, date, start_time, erreu
     assert erreur in inter.dernier_texte()
     assert client.salon.envoyes == []  # pas d'annonce postée
     assert client.stockage.charger(str(inter.id)) is None
+
+
+def test_modify_change_la_date_et_l_heure(monde):
+    client, j = monde
+    tid = creer_tournoi(client, j["Admin"], equipes_max=2)
+    inter = modifier(client, j["Admin"], tid, date="13/09/2099", start_time="21h")
+    texte = inter.dernier_texte()
+    assert "Date : 06/09/2099 → **13/09/2099**" in texte and "Heure de début : 20h30 → **21h00**" in texte
+    t = client.stockage.charger(tid)
+    assert (t["date"], t["start_time"]) == ("2099-09-13", "21:00")
+    assert "dimanche 13 septembre 2099 à 21h00" in client.salon.annonce.editions[-1]["embed"].fields[3].value
+
+    inter = modifier(client, j["Admin"], tid, start_time="18:00")  # la date reste la même
+    assert "Heure de début : 21h00 → **18h00**" in inter.dernier_texte()
+    assert client.stockage.charger(tid)["date"] == "2099-09-13"
+
+
+@pytest.mark.parametrize("champs, erreur", [
+    ({"date": "01/01/2020"}, "déjà passé"),
+    ({"date": "32/01/2099"}, "Date invalide"),
+    ({"start_time": "25:00"}, "Heure invalide"),
+])
+def test_modify_refuse_une_date_ou_une_heure_invalide(monde, champs, erreur):
+    client, j = monde
+    tid = creer_tournoi(client, j["Admin"])
+    assert erreur in modifier(client, j["Admin"], tid, **champs).dernier_texte()
+    assert client.stockage.charger(tid)["date"] == "2099-09-06"

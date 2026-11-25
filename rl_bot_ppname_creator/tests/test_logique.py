@@ -539,3 +539,57 @@ def test_ancien_tournoi_a_date_en_texte_libre_affiche_tel_quel():
     assert L.date_affichee(ancien) == "6 septembre"
     assert L.debut_tournoi(ancien) is None
     assert L.date_affichee({"date": "2026-09-06"}) == "dimanche 6 septembre 2026"
+
+
+# --------------------------------------------------------------------------- #
+# Date et heure de début (/tournoi_rl_modify date start_time)
+# --------------------------------------------------------------------------- #
+
+def test_modifier_date_et_heure():
+    t = tournoi()
+    changements, promues = L.modifier_tournoi(t, date="13/09/2026", start_time="21h", maintenant=T0)
+    assert changements == [("date", "2026-09-06", "2026-09-13"), ("start_time", "20:30", "21:00")]
+    assert promues == [] and (t["date"], t["start_time"]) == ("2026-09-13", "21:00")
+
+
+def test_modifier_seulement_l_heure_garde_la_date():
+    t = tournoi()
+    changements, _ = L.modifier_tournoi(t, start_time="18:00", maintenant=T0)
+    assert changements == [("start_time", "20:30", "18:00")] and t["date"] == "2026-09-06"
+
+
+@pytest.mark.parametrize("champs, message", [
+    ({"date": "31/02/2026"}, "Date invalide"),
+    ({"start_time": "24:00"}, "Heure invalide"),
+    ({"date": "01/01/2020"}, "déjà passé"),
+])
+def test_modifier_date_invalide_ne_touche_a_rien(champs, message):
+    t = tournoi()
+    avant = copie(t)
+    with pytest.raises(L.ErreurTournoi, match=message):
+        L.modifier_tournoi(t, titre="Autre", maintenant=T0, **champs)
+    assert t == avant
+
+
+def test_modifier_date_avant_l_ouverture_des_inscriptions_est_refuse():
+    t = tournoi()
+    t["ouverture_inscriptions"] = "2026-09-10T12:00:00+02:00"
+    with pytest.raises(L.ErreurTournoi, match="ne peut pas commencer avant"):
+        L.modifier_tournoi(t, date="08/09/2026", maintenant=T0)
+
+
+def test_modifier_l_heure_d_un_ancien_tournoi_sans_vraie_date_demande_la_date():
+    t = tournoi()
+    t["date"], t["start_time"] = "6 septembre", None
+    with pytest.raises(L.ErreurTournoi, match="donne aussi `date`"):
+        L.modifier_tournoi(t, start_time="20:30", maintenant=T0)
+    changements, _ = L.modifier_tournoi(t, date="06/09/2026", start_time="20:30", maintenant=T0)
+    assert changements == [("date", "6 septembre", "2026-09-06"), ("start_time", None, "20:30")]
+
+
+def test_valeur_affichee():
+    assert L.valeur_affichee("date", "2026-09-06") == "06/09/2026"
+    assert L.valeur_affichee("date", "6 septembre") == "6 septembre"
+    assert L.valeur_affichee("start_time", "09:05") == "9h05"
+    assert L.valeur_affichee("start_time", None) == "*vide*"
+    assert L.valeur_affichee("titre", "caca") == "caca"

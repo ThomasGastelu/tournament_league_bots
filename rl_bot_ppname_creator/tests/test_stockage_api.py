@@ -25,7 +25,7 @@ from bot_inscription_manager.inscription import BoutonAnnuler, BoutonRefuser, ex
 from bot_inscription_manager.main import choisir_stockage
 from bot_inscription_manager.stockage import StockageFichiers
 from bot_inscription_manager.stockage_api import (MESSAGE_API_INJOIGNABLE, MESSAGE_API_REFUSE,
-                                                  MESSAGE_PAS_ENCORE_DANS_L_API, ErreurAPI, StockageAPI,
+                                                  MESSAGE_ROUTE_ABSENTE, ErreurAPI, StockageAPI,
                                                   traduire_erreur)
 from tests.test_bot_simulation import (FausseInteraction, FauxClient, FauxMessage, FauxUtilisateur, confirmer,
                                        inscrire, lancer)
@@ -82,6 +82,13 @@ class FausseAPI(StockageAPI):
     (500, {"error": "Internal server error"}, {}, MESSAGE_API_INJOIGNABLE),
     (502, None, {}, MESSAGE_API_INJOIGNABLE),
     (409, {"error": "Something new"}, {}, "409 Something new"),
+    (404, {"error": "Not found"}, {}, MESSAGE_ROUTE_ABSENTE),
+    (404, {"error": "Player not in an active team"}, {}, "dans aucune équipe"),
+    (409, {"error": "Player has not confirmed yet"}, {}, "pas encore confirmé"),
+    (409, {"error": "New player already in a team of this tournament"}, {"nom": "Zoe"},
+     "**Zoe** est déjà dans une équipe"),
+    (409, {"error": "New player has an active reservation"}, {"nom": "Zoe"}, "/tournoi_rl_unreserve"),
+    (400, {"error": "Tournament would start in the past"}, {}, "dans le passé"),
 ])
 def test_traduction_des_erreurs_de_l_api(statut, corps, contexte, attendu):
     assert attendu in traduire_erreur(statut, corps, contexte)
@@ -148,14 +155,107 @@ def test_api_injoignable():
             lancer(api.lire("1573714661659123762"))
 
 
-def test_modifier_ou_remplacer_un_joueur_est_refuse_clairement_sans_appeler_l_api():
-    api = FausseAPI([])
+def tournoi_avec_equipe(**champs):
+    equipe = {"id": 1, "nom": "Turbo", "statut": L.INSCRITE, "capitaine_id": "111",
+              "capitaine": {"pseudo": "Thomas", "pseudo_jeu": "Tom"},
+              "joueurs": [{"id": "111", "pseudo": "Thomas", "pseudo_jeu": "Tom", "statut": L.CONFIRME},
+                          {"id": "222", "pseudo": "Lucas", "pseudo_jeu": None, "statut": L.EN_ATTENTE}]}
+    return tournoi_api(equipes=[equipe], **champs)
+
+
+def test_modifier_un_joueur_appelle_la_route_de_l_api(tmp_path):
+    t = tournoi_avec_equipe()
+    apres = tournoi_avec_equipe(titre="après")
+    reponse = {"tournoi": apres, "equipe": apres["equipes"][0], "joueur": {"id": "111", "pseudo": "Tomate"},
+               "changements": [{"champ": "pseudo_jeu", "ancienne": "Tom", "nouvelle": "Tom_RL"}]}
+    api = FausseAPI([(200, t), (200, reponse)], tmp_path)
+    tournoi, equipe, joueur, changements = lancer(
+        api.modifier_joueur(t["id"], "111", pseudo_jeu=" Tom_RL ", pseudo="Thomas"))
+    assert api.requetes[1][:3] == ("PATCH", f"/tournaments/{t['id']}/players/111", {"pseudo_jeu": "Tom_RL"})
+    assert tournoi == apres and joueur["pseudo"] == "Tomate" and changements == [("pseudo_jeu", "Tom", "Tom_RL")]
+    assert json.loads((tmp_path / f"{t['id']}.json").read_text(encoding="utf-8")) == apres
+
+
+def test_modifier_un_joueur_verifie_avant_d_appeler_l_api():
+    t = tournoi_avec_equipe()
+    for kwargs, message in [
+        ({"joueur_id": "999", "pseudo": "X"}, "dans aucune équipe"),
+        ({"joueur_id": "222", "pseudo_jeu": "Luc"}, "pas encore confirmé"),
+        ({"joueur_id": "111"}, "au moins un champ"),
+    ]:
+        api = FausseAPI([(200, t)])
+        with pytest.raises(L.ErreurTournoi, match=message):
+            lancer(api.modifier_joueur(t["id"], **kwargs))
+        assert len(api.requetes) == 1  # seulement la lecture du tournoi
+
+
+def test_modifier_un_joueur_sans_changement_n_appelle_pas_l_api():
+    t = tournoi_avec_equipe()
+    api = FausseAPI([(200, t)])
+    _, equipe, joueur, changements = lancer(api.modifier_joueur(t["id"], "111", pseudo="Thomas"))
+    assert changements == [] and equipe["id"] == 1 and joueur["id"] == "111" and len(api.requetes) == 1
+
+
+def test_remplacer_un_joueur_appelle_la_route_de_l_api():
+    t = tournoi_avec_equipe()
+    reponse = {"tournoi": t, "equipe": t["equipes"][0], "ancien": {"id": "222", "pseudo": "Lucas"},
+               "nouveau": {"id": "333", "pseudo": "Zoe", "pseudo_jeu": "Zoe_RL", "statut": L.CONFIRME}}
+    api = FausseAPI([(200, t), (200, reponse)])
+    _, _, ancien, nouveau = lancer(api.remplacer_joueur(t["id"], "222", ("333", "Zoe"), " Zoe_RL "))
+    assert api.requetes[1][:3] == ("POST", f"/tournaments/{t['id']}/players/222/replace",
+                                   {"nouveau": {"id": "333", "pseudo": "Zoe"}, "pseudo_jeu": "Zoe_RL"})
+    assert ancien["id"] == "222" and nouveau["id"] == "333"
+
+
+def test_remplacer_un_joueur_verifie_avant_d_appeler_l_api():
+    t = tournoi_avec_equipe()
+    for ancien, nouveau, message in [
+        ("999", ("333", "Zoe"), "dans aucune équipe"),
+        ("222", ("222", "Lucas"), "le même"),
+        ("222", ("111", "Thomas"), "déjà dans l'équipe"),
+    ]:
+        api = FausseAPI([(200, t)])
+        with pytest.raises(L.ErreurTournoi, match=message):
+            lancer(api.remplacer_joueur(t["id"], ancien, nouveau, "Pseudo"))
+        assert len(api.requetes) == 1
+
+
+def test_route_absente_de_l_api_donne_un_message_clair():
+    t = tournoi_avec_equipe()
+    api = FausseAPI([(200, t), (404, {"error": "Not found"})])
     with pytest.raises(ErreurAPI) as erreur:
-        lancer(api.modifier_joueur("1573714661659123762", "1", pseudo="Nouveau"))
-    assert str(erreur.value) == MESSAGE_PAS_ENCORE_DANS_L_API
-    with pytest.raises(ErreurAPI, match="pas encore"):
-        lancer(api.remplacer_joueur("1573714661659123762", "1", ("2", "Remplaçant"), "Pseudo"))
-    assert api.requetes == []
+        lancer(api.remplacer_joueur(t["id"], "222", ("333", "Zoe"), "Zoe_RL"))
+    assert str(erreur.value) == MESSAGE_ROUTE_ABSENTE
+
+
+def test_modifier_la_date_et_l_heure_envoie_le_format_iso():
+    t = tournoi_api()
+    api = FausseAPI([(200, t), (200, {"tournoi": t, "promues": [], "changements": [
+        {"champ": "date", "ancienne": "2026-12-06", "nouvelle": "2026-12-13"},
+        {"champ": "start_time", "ancienne": "20:30", "nouvelle": "21:00"}]})])
+    _, changements, _ = lancer(api.modifier(t["id"], date="13/12/2026", start_time="21h",
+                                            maintenant="2026-11-25T15:00:00+01:00"))
+    assert api.requetes[1][:3] == ("PATCH", f"/tournaments/{t['id']}", {"date": "2026-12-13", "start_time": "21:00"})
+    assert changements == [("date", "2026-12-06", "2026-12-13"), ("start_time", "20:30", "21:00")]
+
+
+def test_modifier_la_date_verifie_avant_d_appeler_l_api():
+    t = tournoi_api()
+    for kwargs, message in [({"date": "31/02/2026"}, "Date invalide"), ({"start_time": "25:00"}, "Heure invalide"),
+                            ({"date": "01/01/2026"}, "déjà passé")]:
+        api = FausseAPI([(200, t)])
+        with pytest.raises(L.ErreurTournoi, match=message):
+            lancer(api.modifier(t["id"], maintenant="2026-11-25T15:00:00+01:00", **kwargs))
+        assert len(api.requetes) == 1
+
+
+def test_reserver_sans_duree_envoie_null():
+    t = tournoi_api()
+    reservation = {"id": 1, "nom": "Invités", "expire_le": None}
+    api = FausseAPI([(201, {"tournoi": t, "reservation": reservation})])
+    _, r = lancer(api.reserver(t["id"], nom="Invités", capitaine=("111", "Thomas"), duree_minutes=None,
+                               cree_par="9", maintenant="x"))
+    assert api.requetes[0][2]["duree_minutes"] is None and r["expire_le"] is None
 
 
 def test_modification_ignore_le_recalcul_de_la_liste_d_attente():

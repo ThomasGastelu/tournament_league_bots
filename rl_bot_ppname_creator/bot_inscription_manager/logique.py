@@ -559,7 +559,7 @@ def reserver_place(
     *,
     nom: str,
     capitaine: tuple[str, str],
-    duree_minutes: int,
+    duree_minutes: int | None,
     cree_par: str,
     maintenant: str,
 ) -> dict:
@@ -567,6 +567,8 @@ def reserver_place(
 
     Seul ce capitaine peut l'utiliser, en s'inscrivant avec le bouton habituel,
     avant `duree_minutes`. Passé ce délai, la place est rendue (expirer_reservations).
+    `duree_minutes` None : réservation sans limite de durée (« expire_le » à None), gardée
+    jusqu'à ce que le capitaine l'utilise ou qu'un admin l'annule (/tournoi_rl_unreserve).
     Une réservation prend une place libre : elle ne retire jamais une équipe inscrite.
     """
     nom = nom.strip()
@@ -574,7 +576,7 @@ def reserver_place(
         raise ErreurTournoi("Le nom de la réservation ne peut pas être vide.")
     if len(nom) > LONGUEUR_MAX_NOM_EQUIPE:
         raise ErreurTournoi(f"Le nom de la réservation fait au maximum {LONGUEUR_MAX_NOM_EQUIPE} caractères.")
-    if not 1 <= duree_minutes <= DUREE_RESERVATION_MAX_MINUTES:
+    if duree_minutes is not None and not 1 <= duree_minutes <= DUREE_RESERVATION_MAX_MINUTES:
         raise ErreurTournoi(f"La durée de la réservation doit être entre 1 et {DUREE_RESERVATION_MAX_MINUTES} minutes.")
     capitaine_id, pseudo = capitaine
     equipe = equipe_du_joueur(tournoi, capitaine_id)
@@ -596,7 +598,10 @@ def reserver_place(
         "statut": RESERVATION_ACTIVE,
         "cree_par": cree_par,
         "cree_le": maintenant,
-        "expire_le": (lire_date(maintenant) + timedelta(minutes=duree_minutes)).isoformat(timespec="seconds"),
+        "expire_le": (
+            (lire_date(maintenant) + timedelta(minutes=duree_minutes)).isoformat(timespec="seconds")
+            if duree_minutes is not None else None  # None : sans limite de durée
+        ),
         "equipe_id": None,
         "terminee_le": None,
     }
@@ -617,9 +622,11 @@ def annuler_reservation(tournoi: dict, reservation_id: int, maintenant: str) -> 
 def expirer_reservations(tournoi: dict, maintenant: str) -> tuple[list[dict], list[dict]]:
     """Rend les places réservées dont l'échéance est passée.
 
+    Les réservations sans limite de durée (« expire_le » à None) n'expirent jamais.
     Retourne (réservations expirées, équipes promues de la liste d'attente).
     """
-    expirees = [r for r in reservations_actives(tournoi) if lire_date(maintenant) >= lire_date(r["expire_le"])]
+    expirees = [r for r in reservations_actives(tournoi)
+                if r.get("expire_le") and lire_date(maintenant) >= lire_date(r["expire_le"])]
     for reservation in expirees:
         reservation["statut"] = RESERVATION_EXPIREE
         reservation["terminee_le"] = maintenant
@@ -720,7 +727,26 @@ def remplacer_joueur(
     return equipe, ancien, remplacant
 
 
-CHAMPS_MODIFIABLES = {"titre": "Titre", "cashprize": "Cashprize", "equipes_max": "Équipes max"}
+CHAMPS_MODIFIABLES = {"titre": "Titre", "cashprize": "Cashprize", "equipes_max": "Équipes max",
+                      "date": "Date", "start_time": "Heure de début"}
+
+
+def valeur_affichee(champ: str, valeur: object) -> str:
+    """Valeur d'un champ modifié, pour les messages : la date en JJ/MM/AAAA, l'heure en 20h30."""
+    if valeur is None:
+        return "*vide*"
+    if champ == "date":
+        try:
+            return Date.fromisoformat(str(valeur)).strftime("%d/%m/%Y")
+        except ValueError:
+            return str(valeur)  # ancien tournoi : date en texte libre
+    if champ == "start_time":
+        try:
+            heure = time.fromisoformat(str(valeur))
+            return f"{heure.hour}h{heure.minute:02d}"
+        except ValueError:
+            return str(valeur)
+    return str(valeur)
 
 
 def _texte_obligatoire(valeur: str, champ: str, longueur_max: int) -> str:
@@ -732,14 +758,70 @@ def _texte_obligatoire(valeur: str, champ: str, longueur_max: int) -> str:
     return valeur
 
 
+TEXTE_AUCUN_CHAMP = "Indique au moins un champ à modifier : titre, cashprize, equipes_max, date ou start_time."
+
+
+def verifier_nouveau_debut(
+    tournoi: dict, *, date: str | None, start_time: str | None, maintenant: str | None,
+) -> dict[str, str]:
+    """Vérifie une nouvelle date (JJ/MM/AAAA) et/ou heure de début (HH:MM, Paris) pour un tournoi existant.
+
+    Le champ absent garde sa valeur actuelle. Retourne les valeurs ISO à enregistrer
+    ({"date": "2026-12-06", "start_time": "20:30"}, seulement les champs donnés).
+    """
+    nouvelles: dict[str, str] = {}
+    if date is not None:
+        jour = lire_date_tournoi(date)
+        nouvelles["date"] = jour.isoformat()
+    else:
+        try:
+            jour = Date.fromisoformat(str(tournoi.get("date") or ""))
+        except ValueError:
+            raise ErreurTournoi(
+                f"Ce tournoi n'a pas de vraie date (« {tournoi.get('date')} ») : "
+                f"donne aussi `date` ({FORMAT_DATE}).") from None
+    if start_time is not None:
+        heure = lire_heure_debut(start_time)
+        nouvelles["start_time"] = heure.strftime("%H:%M")
+    else:
+        try:
+            heure = time.fromisoformat(str(tournoi.get("start_time") or ""))
+        except ValueError:
+            raise ErreurTournoi(
+                f"Ce tournoi n'a pas d'heure de début : donne aussi `start_time` ({FORMAT_HEURE}).") from None
+    debut = datetime.combine(jour, heure, FUSEAU_TOURNOI)
+    if maintenant is not None and debut <= lire_date(maintenant):
+        raise ErreurTournoi(f"Le tournoi commencerait {texte_debut(jour, heure)} : c'est déjà passé.")
+    ouverture = tournoi.get("ouverture_inscriptions")
+    if ouverture and lire_date(ouverture) >= debut:
+        raise ErreurTournoi(
+            f"Les inscriptions ouvrent {texte_debut_datetime(lire_date(ouverture))} : "
+            f"le tournoi ne peut pas commencer avant.")
+    return nouvelles
+
+
+def texte_debut_datetime(moment: datetime) -> str:
+    """« samedi 6 décembre 2026 à 20h30 » pour un instant quelconque, à l'heure de Paris."""
+    local = moment.astimezone(FUSEAU_TOURNOI)
+    return texte_debut(local.date(), local.time())
+
+
 def modifier_tournoi(
     tournoi: dict,
     *,
     titre: str | None = None,
     cashprize: str | None = None,
     equipes_max: int | None = None,
+    date: str | None = None,
+    start_time: str | None = None,
+    maintenant: str | None = None,
 ) -> tuple[list[tuple[str, object, object]], list[dict]]:
-    """Modifie le titre, le cashprize et/ou le nombre maximum d'équipes (None = inchangé).
+    """Modifie le titre, le cashprize, le nombre maximum d'équipes, la date et/ou l'heure de début
+    (None = inchangé).
+
+    `date` (JJ/MM/AAAA) et `start_time` (HH:MM, heure de Paris) sont enregistrés au format ISO,
+    comme à la création. Le nouveau début doit être dans le futur (`maintenant`) et après
+    l'ouverture des inscriptions si elle est différée.
 
     Tout est vérifié avant de toucher au tournoi : en cas d'erreur, il reste intact.
     Aucune équipe n'est jamais retirée ni renvoyée en liste d'attente : si le
@@ -748,8 +830,8 @@ def modifier_tournoi(
     Retourne (changements [(champ, ancienne valeur, nouvelle valeur)],
     équipes promues de la liste d'attente). Pas de changement → ([], []).
     """
-    if titre is None and cashprize is None and equipes_max is None:
-        raise ErreurTournoi("Indique au moins un champ à modifier : titre, cashprize ou equipes_max.")
+    if titre is None and cashprize is None and equipes_max is None and date is None and start_time is None:
+        raise ErreurTournoi(TEXTE_AUCUN_CHAMP)
 
     nouvelles: dict[str, object] = {}
     if titre is not None:
@@ -777,8 +859,10 @@ def modifier_tournoi(
                 f"{attente_max} avec {equipes_max} équipes. Retire d'abord "
                 f"{attente_apres - attente_max} équipe(s) de la liste d'attente avec `/tournoi_rl_remove_team`.")
         nouvelles["equipes_max"] = equipes_max
+    if date is not None or start_time is not None:
+        nouvelles.update(verifier_nouveau_debut(tournoi, date=date, start_time=start_time, maintenant=maintenant))
 
-    changements = [(champ, tournoi[champ], valeur) for champ, valeur in nouvelles.items()
+    changements = [(champ, tournoi.get(champ), valeur) for champ, valeur in nouvelles.items()
                    if tournoi[champ] != valeur]
     for champ, _ancienne, valeur in changements:
         tournoi[champ] = valeur

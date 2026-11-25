@@ -16,6 +16,7 @@ Utilisé quand `API_URL` est rempli dans le `.env`. Mêmes méthodes asynchrones
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import re
 from pathlib import Path
@@ -30,10 +31,8 @@ log = logging.getLogger(__name__)
 
 DELAI_REPONSE_SECONDES = 10
 MESSAGE_API_INJOIGNABLE = "Le serveur des tournois ne répond pas. Réessaie dans un instant."
-MESSAGE_PAS_ENCORE_DANS_L_API = (
-    "Cette commande ne marche pas encore avec le serveur des tournois : l'API n'a pas de route pour "
-    "modifier ou remplacer un joueur. En attendant, retire l'équipe avec `/tournoi_rl_remove_team` "
-    "et fais-la se réinscrire.")
+MESSAGE_ROUTE_ABSENTE = ("Le serveur des tournois ne sait pas encore faire ça (route absente de l'API). "
+                         "Mets à jour le site, puis réessaie.")
 MESSAGE_API_REFUSE = ("Le serveur des tournois refuse le bot : vérifie que `BOT_API_KEY` est la même "
                       "dans le `.env` du bot et dans celui de l'API.")
 
@@ -121,9 +120,25 @@ def traduire_erreur(statut: int, corps: Any, contexte: dict | None = None) -> st
         "Captain already has an active reservation": "Ce capitaine a déjà une place réservée dans ce tournoi.",
         "Reservation not found": f"Aucune réservation R{numero} dans ce tournoi.",
         "Reservation is not active": f"La réservation R{numero} n'est plus active.",
+        "Player not in an active team": ("Ce joueur n'est dans aucune équipe inscrite ou en liste "
+                                         "d'attente de ce tournoi."),
+        "Player has not confirmed yet": ("Ce joueur n'a pas encore confirmé sa participation : il donnera "
+                                         "son pseudo Rocket League en confirmant."),
+        "Same player": "Le nouveau joueur est le même que l'ancien.",
+        "New player already in a team of this tournament": f"**{nom}** est déjà dans une équipe pour ce tournoi.",
+        "New player has an active reservation": (f"**{nom}** a une place réservée dans ce tournoi. "
+                                                 "Annule-la d'abord avec `/tournoi_rl_unreserve`."),
+        "Tournament would start in the past": "Le tournoi commencerait dans le passé.",
+        "Tournament would start before registrations open": ("Les inscriptions ouvrent après ce début : "
+                                                             "le tournoi ne peut pas commencer avant."),
+        "Tournament has no real date": "Ce tournoi n'a pas de vraie date : donne aussi `date` (JJ/MM/AAAA).",
+        "Tournament has no start time": "Ce tournoi n'a pas d'heure de début : donne aussi `start_time` (HH:MM).",
     }
     if message in simples:
         return simples[message]
+    if statut == 404:
+        # 404 avec un message inconnu : la route n'existe pas (API pas encore mise à jour).
+        return MESSAGE_ROUTE_ABSENTE
     if statut == 400:
         champs = ", ".join(d.get("path") or "?" for d in details if isinstance(d, dict)) \
             if isinstance(details, list) else ""
@@ -244,11 +259,17 @@ class StockageAPI:
 
     async def modifier(
         self, tournoi_id: str, *, titre: str | None = None, cashprize: str | None = None,
-        equipes_max: int | None = None,
+        equipes_max: int | None = None, date: str | None = None, start_time: str | None = None,
+        maintenant: str | None = None,
     ) -> tuple[dict, list[tuple[str, object, object]], list[dict]]:
-        if titre is None and cashprize is None and equipes_max is None:
-            raise L.ErreurTournoi("Indique au moins un champ à modifier : titre, cashprize ou equipes_max.")
+        if titre is None and cashprize is None and equipes_max is None and date is None and start_time is None:
+            raise L.ErreurTournoi(L.TEXTE_AUCUN_CHAMP)
         corps: dict[str, object] = {}
+        if date is not None or start_time is not None:
+            # Vérifié ici d'abord (format JJ/MM/AAAA, début futur) pour des messages précis en français.
+            tournoi = await self._exiger(tournoi_id)
+            corps.update(L.verifier_nouveau_debut(tournoi, date=date, start_time=start_time,
+                                                  maintenant=maintenant))
         if titre is not None:
             corps["titre"] = L._texte_obligatoire(titre, "titre", L.LONGUEUR_MAX_TITRE)
         if cashprize is not None:
@@ -321,12 +342,13 @@ class StockageAPI:
     # --- Réservations ------------------------------------------------------- #
 
     async def reserver(
-        self, tournoi_id: str, *, nom: str, capitaine: tuple[str, str], duree_minutes: int, cree_par: str,
+        self, tournoi_id: str, *, nom: str, capitaine: tuple[str, str], duree_minutes: int | None, cree_par: str,
         maintenant: str,
     ) -> tuple[dict, dict]:
         nom = nom.strip()
         if not nom:
             raise L.ErreurTournoi("Le nom de la réservation ne peut pas être vide.")
+        # duree_minutes None : réservation sans limite de durée (l'API renvoie expire_le à null).
         corps = {"nom": nom, "capitaine": {"id": capitaine[0], "pseudo": capitaine[1]},
                  "duree_minutes": duree_minutes, "cree_par": cree_par}
         reponse = await self._appel("POST", f"/tournaments/{tournoi_id}/reservations", corps,
@@ -342,18 +364,33 @@ class StockageAPI:
         return self._copier(reponse["tournoi"]), reponse["reservation"], reponse["promues"]
 
     # --- Joueurs ------------------------------------------------------------ #
-    # /tournoi_rl_modify_player et /tournoi_rl_modify_member : l'API n'a pas encore de route
-    # pour ça. On refuse avec un message clair plutôt que de modifier seulement la copie locale.
+    # /tournoi_rl_modify_player et /tournoi_rl_modify_member. Le bot vérifie d'abord sur une copie
+    # du tournoi avec les règles de logique.py (messages précis en français), puis l'API applique.
 
     async def modifier_joueur(
         self, tournoi_id: str, joueur_id: str, *, pseudo: str | None = None, pseudo_jeu: str | None = None,
     ) -> tuple[dict, dict, dict, list[tuple[str, object, object]]]:
-        raise ErreurAPI(MESSAGE_PAS_ENCORE_DANS_L_API)
+        tournoi = await self._exiger(tournoi_id)
+        _equipe, _joueur, changements = L.modifier_joueur(
+            copy.deepcopy(tournoi), joueur_id, pseudo=pseudo, pseudo_jeu=pseudo_jeu)
+        if not changements:
+            equipe = L.equipe_du_joueur(tournoi, joueur_id)
+            return tournoi, equipe, L.joueur_dans_equipe(equipe, joueur_id), []
+        corps = {champ: nouvelle for champ, _ancienne, nouvelle in changements}
+        reponse = await self._appel("PATCH", f"/tournaments/{tournoi_id}/players/{joueur_id}", corps)
+        changements = [(c["champ"], c["ancienne"], c["nouvelle"]) for c in reponse["changements"]]
+        return self._copier(reponse["tournoi"]), reponse["equipe"], reponse["joueur"], changements
 
     async def remplacer_joueur(
         self, tournoi_id: str, ancien_id: str, nouveau: tuple[str, str], pseudo_jeu: str,
     ) -> tuple[dict, dict, dict, dict]:
-        raise ErreurAPI(MESSAGE_PAS_ENCORE_DANS_L_API)
+        tournoi = await self._exiger(tournoi_id)
+        L.remplacer_joueur(copy.deepcopy(tournoi), ancien_id, nouveau, pseudo_jeu)
+        corps = {"nouveau": {"id": nouveau[0], "pseudo": nouveau[1]},
+                 "pseudo_jeu": L.nettoyer_pseudo_jeu(pseudo_jeu)}
+        reponse = await self._appel("POST", f"/tournaments/{tournoi_id}/players/{ancien_id}/replace", corps,
+                                    contexte={"nom": nouveau[1]})
+        return self._copier(reponse["tournoi"]), reponse["equipe"], reponse["ancien"], reponse["nouveau"]
 
     # --- Tâche de chaque minute -------------------------------------------- #
 

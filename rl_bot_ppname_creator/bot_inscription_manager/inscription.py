@@ -539,15 +539,26 @@ async def expirer_inscriptions(client: discord.Client) -> int:
     return total
 
 
+def texte_echeance_reservation(reservation: dict) -> str:
+    """« jusqu'à <heure> » ou « sans limite de durée » (réservation sans `duree`)."""
+    if not reservation.get("expire_le"):
+        return "sans limite de durée"
+    return f"jusqu'à {horaire(reservation['expire_le'])}"
+
+
 def texte_reservation(tournoi: dict, reservation: dict) -> str:
     """MP envoyé au capitaine d'une place réservée."""
     lien = f"https://discord.com/channels/{tournoi['serveur_id']}/{tournoi['salon_id']}/{tournoi['message_id']}"
+    if reservation.get("expire_le"):
+        delai = (f"avant {horaire(reservation['expire_le'])}, sinon la place sera rendue aux autres équipes. ")
+    else:
+        delai = "quand tu veux : la place t'est gardée sans limite de durée. "
     return (
         f"🔒 Une place t'est réservée pour l'équipe **{reservation['nom']}** au tournoi **{tournoi['titre']}** "
         f"({L.format_match(tournoi['joueurs_par_equipe'])}, {L.date_affichee(tournoi)}, cashprize {tournoi['cashprize']}).\n"
         f"Inscris ton équipe avec le bouton **S'inscrire** de l'annonce ({lien}) "
-        f"avant {horaire(reservation['expire_le'])}, sinon la place sera rendue aux autres équipes. "
-        f"Tu peux le faire dès maintenant, même si les inscriptions ne sont pas encore ouvertes."
+        + delai
+        + "Tu peux le faire dès maintenant, même si les inscriptions ne sont pas encore ouvertes."
     )
 
 

@@ -12,7 +12,8 @@ from discord import app_commands, ui
 from . import logique as L
 from .embeds import embed_annonce, embeds_status, pseudo_jeu_affiche
 from .inscription import (apres_annulation, envoyer_mp, horaire, maintenant, mettre_a_jour_annonce,
-                          prevenir_promues, repondre, stockage, supprimer_annonce, texte_reservation, vue_annonce)
+                          prevenir_promues, repondre, stockage, supprimer_annonce, texte_echeance_reservation,
+                          texte_reservation, vue_annonce)
 
 log = logging.getLogger(__name__)
 
@@ -156,7 +157,8 @@ LIMITE_LISTE_PROMUES = 1000  # au-delà, on donne seulement le nombre (Discord :
 def texte_modification(tournoi: dict, changements: list, promues: list[dict], annonce_ok: bool) -> str:
     lignes = [f"✅ Tournoi **{tournoi['titre']}** modifié :"]
     for champ, ancienne, nouvelle in changements:
-        ligne = f"• {L.CHAMPS_MODIFIABLES[champ]} : {ancienne} → **{nouvelle}**"
+        ligne = (f"• {L.CHAMPS_MODIFIABLES[champ]} : {L.valeur_affichee(champ, ancienne)} → "
+                 f"**{L.valeur_affichee(champ, nouvelle)}**")
         if champ == "equipes_max":
             ligne += f" (liste d'attente max : **{tournoi['liste_attente_max']}**)"
         lignes.append(ligne)
@@ -172,13 +174,15 @@ def texte_modification(tournoi: dict, changements: list, promues: list[dict], an
 
 
 @app_commands.command(name="tournoi_rl_modify",
-                      description="Modifie le titre, le cashprize ou le nombre maximum d'équipes d'un tournoi")
+                      description="Modifie le titre, le cashprize, le nombre d'équipes, la date ou l'heure d'un tournoi")
 @app_commands.rename(tournoi_id="id")
 @app_commands.describe(
     tournoi_id="ID du tournoi",
     titre="Nouveau titre (vide = inchangé)",
     cashprize="Nouveau cashprize (vide = inchangé)",
     equipes_max="Nouveau nombre maximum d'équipes (vide = inchangé)",
+    date="Nouvelle date, JJ/MM/AAAA (vide = inchangée)",
+    start_time="Nouvelle heure de début, HH:MM heure de Paris (vide = inchangée)",
 )
 @app_commands.autocomplete(tournoi_id=autocomplete_tournoi)
 @app_commands.guild_only()
@@ -189,6 +193,8 @@ async def tournoi_rl_modify(
     titre: app_commands.Range[str, 1, L.LONGUEUR_MAX_TITRE] | None = None,
     cashprize: app_commands.Range[str, 1, L.LONGUEUR_MAX_CASHPRIZE] | None = None,
     equipes_max: app_commands.Range[int, 1, L.EQUIPES_MAX_LIMITE] | None = None,
+    date: app_commands.Range[str, 8, 10] | None = None,
+    start_time: app_commands.Range[str, 1, 5] | None = None,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     tournoi = await tournoi_du_serveur(interaction, tournoi_id)
@@ -196,7 +202,8 @@ async def tournoi_rl_modify(
         return
     try:
         tournoi, changements, promues = await stockage(interaction).modifier(
-            tournoi["id"], titre=titre, cashprize=cashprize, equipes_max=equipes_max)
+            tournoi["id"], titre=titre, cashprize=cashprize, equipes_max=equipes_max, date=date,
+            start_time=start_time, maintenant=maintenant())
     except L.ErreurTournoi as erreur:
         return await repondre(interaction, f"❌ {erreur}")
     if not changements:
@@ -204,6 +211,7 @@ async def tournoi_rl_modify(
 
     log.info("Tournoi %s modifié par %s : %s", tournoi["id"], interaction.user.id,
              ", ".join(f"{c}: {a!r} -> {n!r}" for c, a, n in changements))
+    # Le changement de date ou d'heure n'est pas envoyé en MP : il se voit sur l'annonce.
     annonce_ok = await mettre_a_jour_annonce(interaction.client, tournoi["id"])
     await prevenir_promues(interaction.client, tournoi, promues, "De nouvelles places ont été ouvertes")
     await repondre(interaction, texte_modification(tournoi, changements, promues, annonce_ok))
@@ -235,11 +243,14 @@ async def tournoi_rl_status(interaction: discord.Interaction, tournoi_id: str) -
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_guild=True)
 async def tournoi_rl_status_all(interaction: discord.Interaction, tournoi_id: str) -> None:
-    """Comme /tournoi_rl_status, mais la réponse est visible par tout le monde dans le salon."""
+    """Comme /tournoi_rl_status, mais la réponse est visible par tout le monde dans le salon.
+
+    Version publique : sans les places réservées (🔒) ni les ✅ de confirmation.
+    """
     tournoi = await tournoi_du_serveur(interaction, tournoi_id)
     if tournoi is None:
         return
-    for embed in embeds_status(tournoi):
+    for embed in embeds_status(tournoi, public=True):
         if interaction.response.is_done():
             await interaction.followup.send(None, embed=embed)
         else:
@@ -257,7 +268,7 @@ async def tournoi_rl_status_all(interaction: discord.Interaction, tournoi_id: st
     tournoi_id="ID du tournoi",
     capitaine="Le capitaine qui pourra utiliser la place (lui seul)",
     nom="Nom affiché pour la réservation (ex : Partenaire Tomato)",
-    duree="Minutes pendant lesquelles la place reste bloquée ; ensuite elle est rendue aux autres équipes",
+    duree="Minutes pendant lesquelles la place reste bloquée (vide = sans limite, jusqu'à /tournoi_rl_unreserve)",
 )
 @app_commands.autocomplete(tournoi_id=autocomplete_tournoi)
 @app_commands.guild_only()
@@ -267,7 +278,7 @@ async def tournoi_rl_reserve(
     tournoi_id: str,
     capitaine: discord.Member,
     nom: app_commands.Range[str, 1, L.LONGUEUR_MAX_NOM_EQUIPE],
-    duree: app_commands.Range[int, 1, L.DUREE_RESERVATION_MAX_MINUTES],
+    duree: app_commands.Range[int, 1, L.DUREE_RESERVATION_MAX_MINUTES] | None = None,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     if capitaine.bot:
@@ -283,11 +294,11 @@ async def tournoi_rl_reserve(
         return await repondre(interaction, f"❌ {erreur}")
 
     log.info("Tournoi %s : place R%s réservée pour %s (%s) par %s jusqu'à %s", tournoi["id"], reservation["id"],
-             reservation["nom"], capitaine.id, interaction.user.id, reservation["expire_le"])
+             reservation["nom"], capitaine.id, interaction.user.id, reservation.get("expire_le") or "sans limite")
     await mettre_a_jour_annonce(interaction.client, tournoi["id"])
     prevenu = await envoyer_mp(interaction.client, capitaine.id, texte_reservation(tournoi, reservation))
     texte = (f"🔒 Place `R{reservation['id']}` réservée pour **{reservation['nom']}** "
-             f"(capitaine **{capitaine.display_name}**) jusqu'à {horaire(reservation['expire_le'])}.\n"
+             f"(capitaine **{capitaine.display_name}**) {texte_echeance_reservation(reservation)}.\n"
              f"Places libres restantes : **{L.places_libres(tournoi)}**.")
     texte += ("\n📩 Le capitaine a été prévenu en MP." if prevenu else
               "\n⚠️ Impossible d'envoyer un MP au capitaine (MP fermés) : préviens-le toi-même.")

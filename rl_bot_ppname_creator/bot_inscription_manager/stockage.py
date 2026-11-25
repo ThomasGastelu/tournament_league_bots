@@ -118,12 +118,14 @@ class StockageFichiers:
 
     async def modifier(
         self, tournoi_id: str, *, titre: str | None = None, cashprize: str | None = None,
-        equipes_max: int | None = None,
+        equipes_max: int | None = None, date: str | None = None, start_time: str | None = None,
+        maintenant: str | None = None,
     ) -> tuple[dict, list[tuple[str, object, object]], list[dict]]:
         async with self.verrou(tournoi_id):
             tournoi = self._exiger(tournoi_id)
             changements, promues = L.modifier_tournoi(
-                tournoi, titre=titre, cashprize=cashprize, equipes_max=equipes_max)
+                tournoi, titre=titre, cashprize=cashprize, equipes_max=equipes_max, date=date,
+                start_time=start_time, maintenant=maintenant)
             if changements:
                 self.sauvegarder(tournoi)
         return tournoi, changements, promues
@@ -168,7 +170,7 @@ class StockageFichiers:
         return tournoi, equipe, promues
 
     async def reserver(
-        self, tournoi_id: str, *, nom: str, capitaine: tuple[str, str], duree_minutes: int, cree_par: str,
+        self, tournoi_id: str, *, nom: str, capitaine: tuple[str, str], duree_minutes: int | None, cree_par: str,
         maintenant: str,
     ) -> tuple[dict, dict]:
         async with self.verrou(tournoi_id):

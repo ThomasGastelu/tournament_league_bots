@@ -311,3 +311,28 @@ def test_suppression_du_tournoi_previent_les_capitaines_reserves(monde):
     vue = inter.reponses[-1][1]["view"]
     lancer(vue.confirmer.callback(FausseInteraction(client, j["Admin"])))
     assert "La place réservée pour **Invités** est annulée" in j["Thomas"].mp[-1]
+
+
+def test_reservation_sans_duree_n_expire_jamais():
+    t = tournoi(equipes_max=1)
+    r = reserver(t, 1, duree=None)
+    assert r["expire_le"] is None and r["statut"] == L.RESERVATION_ACTIVE
+    assert L.expirer_reservations(t, plus(60 * 24 * 365)) == ([], [])
+    assert L.places_libres(t) == 0
+    inscrire_l(t, 1, maintenant=plus(60 * 24 * 30))  # le capitaine l'utilise un mois plus tard
+    assert r["statut"] == L.RESERVATION_UTILISEE
+
+
+def test_commande_reserve_sans_duree(monde):
+    client, j = monde
+    tid, _ = creer(client, j["Admin"], equipes_max=2)
+    inter = FausseInteraction(client, j["Admin"])
+    lancer_sans_blocage(tournoi_rl_reserve.callback(inter, tournoi_id=tid, capitaine=j["Thomas"], nom="Invités"))
+    assert "réservée pour **Invités** (capitaine **Thomas**) sans limite de durée" in inter.dernier_texte()
+    assert "sans limite de durée" in j["Thomas"].mp[-1] and "sinon la place sera rendue" not in j["Thomas"].mp[-1]
+    assert client.stockage.charger(tid)["reservations"][0]["expire_le"] is None
+    assert lancer(expirer_inscriptions(client)) == 0
+    assert client.stockage.charger(tid)["reservations"][0]["statut"] == L.RESERVATION_ACTIVE
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl_status.callback(inter, tid))
+    assert "`R1` **Invités** — capitaine Thomas · ♾️ sans limite de durée" in inter.reponses[-1][1]["embed"].description
