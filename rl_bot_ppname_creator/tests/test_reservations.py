@@ -21,7 +21,7 @@ def plus(minutes, depuis=T0):
 def tournoi(equipes_max=2, delai=0):
     return L.nouveau_tournoi(
         tournoi_id="1", titre="caca", cashprize="100", joueurs_par_equipe=2, equipes_max=equipes_max,
-        date="6 septembre", serveur_id="1", salon_id="2", cree_par="9", maintenant=T0,
+        date="06/09/2026", start_time="20:30", serveur_id="1", salon_id="2", cree_par="9", maintenant=T0,
         delai_ouverture_minutes=delai,
     )
 
@@ -165,7 +165,7 @@ def test_equipes_max_ne_descend_pas_sous_inscrites_plus_reservees():
 def creer(client, admin, equipes_max=1, delay=0):
     inter = FausseInteraction(client, admin)
     lancer(tournoi_rl.callback(inter, titre="caca", cashprize="100", joueurs_par_equipe=2,
-                               equipes_max=equipes_max, date="6 septembre", delay=delay))
+                               equipes_max=equipes_max, date="06/09/2099", start_time="20:30", delay=delay))
     return str(inter.id), inter
 
 

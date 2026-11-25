@@ -28,7 +28,7 @@ async def autocomplete_tournoi(interaction: discord.Interaction, actuel: str) ->
         return []
     choix = []
     for tournoi in tournois:
-        nom = f"{tournoi['titre']} — {tournoi['date']} ({tournoi['id']})"
+        nom = f"{tournoi['titre']} — {L.date_affichee(tournoi, courte=True)} ({tournoi['id']})"
         if actuel.lower() in nom.lower():
             choix.append(app_commands.Choice(name=nom[:100], value=tournoi["id"]))
         if len(choix) == 25:
@@ -95,7 +95,8 @@ async def tournoi_du_serveur(interaction: discord.Interaction, tournoi_id: str) 
     cashprize="Cashprize (ex : 100€)",
     joueurs_par_equipe="Nombre de joueurs par équipe (1 à 3)",
     equipes_max="Nombre maximum d'équipes",
-    date="Date du tournoi (ex : 6 septembre)",
+    date="Date du tournoi, JJ/MM/AAAA (ex : 06/12/2026)",
+    start_time="Heure de début du tournoi, HH:MM heure de Paris (ex : 20:30)",
     delay="Minutes avant l'ouverture des inscriptions, pour réserver des places d'ici là (0 = tout de suite)",
 )
 @app_commands.guild_only()
@@ -106,18 +107,22 @@ async def tournoi_rl(
     cashprize: app_commands.Range[str, 1, L.LONGUEUR_MAX_CASHPRIZE],
     joueurs_par_equipe: app_commands.Range[int, 1, 3],
     equipes_max: app_commands.Range[int, 1, L.EQUIPES_MAX_LIMITE],
-    date: app_commands.Range[str, 1, 100],
+    date: app_commands.Range[str, 8, 10],
+    start_time: app_commands.Range[str, 1, 5],
     delay: app_commands.Range[int, 0, L.DELAI_OUVERTURE_MAX_MINUTES] = 0,
 ) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
-    tournoi = L.nouveau_tournoi(
-        tournoi_id=str(interaction.id),
-        titre=titre, cashprize=cashprize, joueurs_par_equipe=joueurs_par_equipe,
-        equipes_max=equipes_max, date=date,
-        serveur_id=str(interaction.guild_id), salon_id=str(interaction.channel_id),
-        cree_par=str(interaction.user.id), maintenant=maintenant(),
-        delai_ouverture_minutes=delay,
-    )
+    try:
+        tournoi = L.nouveau_tournoi(
+            tournoi_id=str(interaction.id),
+            titre=titre, cashprize=cashprize, joueurs_par_equipe=joueurs_par_equipe,
+            equipes_max=equipes_max, date=date, start_time=start_time,
+            serveur_id=str(interaction.guild_id), salon_id=str(interaction.channel_id),
+            cree_par=str(interaction.user.id), maintenant=maintenant(),
+            delai_ouverture_minutes=delay,
+        )
+    except L.ErreurTournoi as erreur:
+        return await repondre(interaction, f"❌ {erreur}")
     try:
         message = await interaction.channel.send(  # type: ignore[union-attr]
             embed=embed_annonce(tournoi), view=vue_annonce(tournoi))
@@ -412,11 +417,11 @@ async def tournoi_rl_modify_member(
     await envoyer_mp(
         interaction.client, ancien.id,
         f"🔄 Un admin t'a remplacé par **{entrant['pseudo']}** dans l'équipe **{equipe['nom']}** "
-        f"du tournoi **{tournoi['titre']}** ({tournoi['date']}). Tu n'es plus inscrit.")
+        f"du tournoi **{tournoi['titre']}** ({L.date_affichee(tournoi)}). Tu n'es plus inscrit.")
     prevenu = await envoyer_mp(
         interaction.client, nouveau.id,
         f"✅ Un admin t'a ajouté à l'équipe **{equipe['nom']}** du tournoi **{tournoi['titre']}** "
-        f"({tournoi['date']}) à la place de **{sortant['pseudo']}**"
+        f"({L.date_affichee(tournoi)}) à la place de **{sortant['pseudo']}**"
         + (", et tu en es le capitaine" if capitaine else "")
         + f".\n🎮 Ton pseudo Rocket League : {pseudo_jeu_affiche(entrant)}\n{L.AVERTISSEMENT_PSEUDO_JEU}")
     texte = (f"✅ **{sortant['pseudo']}** remplacé par **{entrant['pseudo']}** (🎮 {pseudo_jeu_affiche(entrant)}) "
@@ -476,7 +481,7 @@ async def tournoi_rl_remove(interaction: discord.Interaction, tournoi_id: str) -
     nb_equipes = len(L.equipes_actives(tournoi))
     await repondre(
         interaction,
-        f"⚠️ Annuler et **effacer** le tournoi **{tournoi['titre']}** ({tournoi['date']}) ?\n"
+        f"⚠️ Annuler et **effacer** le tournoi **{tournoi['titre']}** ({L.date_affichee(tournoi)}) ?\n"
         f"L'annonce sera supprimée, les joueurs des {nb_equipes} équipe(s) seront prévenus en MP "
         f"et le fichier du tournoi sera effacé. **C'est définitif.**",
         view=ConfirmationSuppression(tournoi["id"]),
@@ -504,13 +509,13 @@ class ConfirmationSuppression(ui.View):
             for joueur in equipe["joueurs"]:
                 await envoyer_mp(
                     interaction.client, joueur["id"],
-                    f"🛑 Le tournoi **{tournoi['titre']}** ({tournoi['date']}) a été annulé par un admin. "
+                    f"🛑 Le tournoi **{tournoi['titre']}** ({L.date_affichee(tournoi)}) a été annulé par un admin. "
                     f"L'inscription de ton équipe **{equipe['nom']}** est annulée.",
                 )
         for reservation in L.reservations_actives(tournoi):
             await envoyer_mp(
                 interaction.client, reservation["capitaine_id"],
-                f"🛑 Le tournoi **{tournoi['titre']}** ({tournoi['date']}) a été annulé par un admin. "
+                f"🛑 Le tournoi **{tournoi['titre']}** ({L.date_affichee(tournoi)}) a été annulé par un admin. "
                 f"La place réservée pour **{reservation['nom']}** est annulée.",
             )
 

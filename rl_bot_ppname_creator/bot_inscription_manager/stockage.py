@@ -94,8 +94,9 @@ class StockageFichiers:
         """Rien à fermer pour des fichiers (StockageAPI ferme sa connexion HTTP)."""
 
     async def lister(self, serveur_id: str) -> list[dict]:
-        """Résumé des tournois d'un serveur : id, titre, date."""
-        return [{"id": t["id"], "titre": t["titre"], "date": t["date"]} for t in self.tous(serveur_id)]
+        """Résumé des tournois d'un serveur : id, titre, date, start_time."""
+        return [{"id": t["id"], "titre": t["titre"], "date": t["date"], "start_time": t.get("start_time")}
+                for t in self.tous(serveur_id)]
 
     async def lire(self, tournoi_id: str) -> dict | None:
         return self.charger(tournoi_id)

@@ -148,7 +148,7 @@ def lancer(coro):
 def creer_tournoi(client, admin, equipes_max=1):
     inter = FausseInteraction(client, admin)
     lancer(tournoi_rl.callback(inter, titre="caca", cashprize="100", joueurs_par_equipe=2,
-                               equipes_max=equipes_max, date="6 septembre"))
+                               equipes_max=equipes_max, date="06/09/2099", start_time="20:30"))
     return str(inter.id)
 
 
@@ -371,7 +371,7 @@ def test_modification_du_tournoi(monde):
     # Annonce : nouveau titre, nouveaux compteurs, bouton de nouveau cliquable.
     embed = client.salon.annonce.editions[-1]["embed"]
     assert embed.title == "🏆 Grand Tournoi"
-    assert [f.value for f in embed.fields[:5]] == ["300€", "2v2", "3/3", "6 septembre", "2/12"]
+    assert [f.value for f in embed.fields[:5]] == ["300€", "2v2", "3/3", "dimanche 6 septembre 2099 à 20h30 (heure de Paris)\n🕗 Début <t:4092402600:R>", "2/12"]
     assert not bouton_annonce(client).disabled
 
     # MP aux équipes promues seulement.
@@ -437,7 +437,7 @@ def test_modification_quand_l_annonce_a_ete_supprimee(monde):
 
 def test_message_de_modification_reste_sous_la_limite_discord():
     t = L.nouveau_tournoi(tournoi_id="1", titre="T" * 100, cashprize="C" * 100, joueurs_par_equipe=2,
-                          equipes_max=128, date="d", serveur_id="1", salon_id="2", cree_par="3", maintenant="x")
+                          equipes_max=128, date="06/09/2026", start_time="20:30", serveur_id="1", salon_id="2", cree_par="3", maintenant="2026-08-31T18:00:00")
     promues = [{"id": i, "nom": "N" * 32} for i in range(1, 128)]
     changements = [("titre", "A" * 100, "T" * 100), ("cashprize", "B" * 100, "C" * 100), ("equipes_max", 1, 128)]
     texte = texte_modification(t, changements, promues, annonce_ok=False)
@@ -549,3 +549,18 @@ def test_modify_member_remplace_le_joueur_et_previent_les_deux(monde):
     lancer(tournoi_rl_modify_member.callback(inter, tournoi_id=tid, ancien=j["Thomas"], nouveau=j["Zoe"],
                                              pseudo_jeu="X"))
     assert "déjà dans l'équipe" in inter.dernier_texte()
+
+
+@pytest.mark.parametrize("date, start_time, erreur", [
+    ("6 sept 26", "20:30", "Date invalide"),
+    ("01/01/2020", "20:30", "déjà passé"),
+    ("06/09/2099", "25:00", "Heure invalide"),
+])
+def test_tournoi_rl_refuse_date_ou_heure_invalide(monde, date, start_time, erreur):
+    client, j = monde
+    inter = FausseInteraction(client, j["Admin"])
+    lancer(tournoi_rl.callback(inter, titre="caca", cashprize="100", joueurs_par_equipe=2, equipes_max=1,
+                               date=date, start_time=start_time))
+    assert erreur in inter.dernier_texte()
+    assert client.salon.envoyes == []  # pas d'annonce postée
+    assert client.stockage.charger(str(inter.id)) is None

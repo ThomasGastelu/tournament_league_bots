@@ -6,7 +6,10 @@ d'un tournoi (le contenu du fichier JSON), ce qui permet de le tester.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import re
+from datetime import date as Date
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 # Statuts d'une équipe
 INSCRITE = "inscrite"
@@ -44,6 +47,16 @@ DELAI_OUVERTURE_MAX_MINUTES = 7 * 24 * 60  # une semaine
 DUREE_RESERVATION_MAX_MINUTES = 30 * 24 * 60  # 30 jours
 
 
+# Date et heure de début du tournoi (/tournoi_rl date start_time) : heure de Paris.
+# Sous Windows, ZoneInfo a besoin du paquet « tzdata » (requirements.txt).
+FUSEAU_TOURNOI = ZoneInfo("Europe/Paris")
+FORMAT_DATE = "JJ/MM/AAAA"
+FORMAT_HEURE = "HH:MM"
+JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre",
+        "octobre", "novembre", "décembre"]
+
+
 class ErreurTournoi(Exception):
     """Erreur dont le message peut être montré tel quel au joueur."""
 
@@ -60,6 +73,7 @@ def nouveau_tournoi(
     joueurs_par_equipe: int,
     equipes_max: int,
     date: str,
+    start_time: str,
     serveur_id: str,
     salon_id: str,
     cree_par: str,
@@ -68,7 +82,15 @@ def nouveau_tournoi(
 ) -> dict:
     """Nouveau tournoi. Avec `delai_ouverture_minutes` > 0, les inscriptions n'ouvrent
     qu'après ce délai (« ouverture_inscriptions ») : le temps de réserver des places.
+
+    `date` (JJ/MM/AAAA) et `start_time` (HH:MM, heure de Paris) sont vérifiés et enregistrés
+    au format ISO : « 2026-12-06 » et « 20:30 ». Le début doit être dans le futur.
     """
+    jour = lire_date_tournoi(date)
+    heure = lire_heure_debut(start_time)
+    debut = datetime.combine(jour, heure, FUSEAU_TOURNOI)
+    if debut <= lire_date(maintenant):
+        raise ErreurTournoi(f"Le tournoi commencerait {texte_debut(jour, heure)} : c'est déjà passé.")
     if not 1 <= joueurs_par_equipe <= 3:
         raise ErreurTournoi("Le nombre de joueurs par équipe doit être entre 1 et 3.")
     if equipes_max < 1:
@@ -76,6 +98,8 @@ def nouveau_tournoi(
     if not 0 <= delai_ouverture_minutes <= DELAI_OUVERTURE_MAX_MINUTES:
         raise ErreurTournoi(
             f"Le délai avant l'ouverture des inscriptions doit être entre 0 et {DELAI_OUVERTURE_MAX_MINUTES} minutes.")
+    if lire_date(maintenant) + timedelta(minutes=delai_ouverture_minutes) >= debut:
+        raise ErreurTournoi("Les inscriptions ouvriraient après le début du tournoi : réduis `delay`.")
     return {
         "id": tournoi_id,
         "titre": titre,
@@ -83,7 +107,8 @@ def nouveau_tournoi(
         "joueurs_par_equipe": joueurs_par_equipe,
         "equipes_max": equipes_max,
         "liste_attente_max": equipes_max * MULTIPLICATEUR_LISTE_ATTENTE,
-        "date": date,
+        "date": jour.isoformat(),
+        "start_time": heure.strftime("%H:%M"),
         "serveur_id": serveur_id,
         "salon_id": salon_id,
         "message_id": None,
@@ -216,6 +241,62 @@ def position_attente(tournoi: dict, equipe: dict) -> int | None:
         if e["id"] == equipe["id"]:
             return position
     return None
+
+
+def lire_date_tournoi(texte: str) -> Date:
+    """Date du tournoi tapée par l'admin : JJ/MM/AAAA (aussi JJ-MM-AAAA ou JJ.MM.AAAA)."""
+    trouve = re.fullmatch(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})", texte.strip())
+    if trouve:
+        jour, mois, annee = (int(x) for x in trouve.groups())
+        try:
+            return Date(annee, mois, jour)
+        except ValueError:
+            pass
+    raise ErreurTournoi(f"Date invalide : « {texte.strip()[:20]} ». Format attendu : {FORMAT_DATE} (ex : 06/12/2026).")
+
+
+def lire_heure_debut(texte: str) -> time:
+    """Heure de début tapée par l'admin : HH:MM (aussi 20h30, 20h ou 20)."""
+    trouve = re.fullmatch(r"(\d{1,2})(?:\s*[:hH]\s*(\d{2})?)?", texte.strip())
+    if trouve:
+        heures, minutes = int(trouve.group(1)), int(trouve.group(2) or 0)
+        if heures < 24 and minutes < 60:
+            return time(heures, minutes)
+    raise ErreurTournoi(f"Heure invalide : « {texte.strip()[:20]} ». Format attendu : {FORMAT_HEURE} (ex : 20:30).")
+
+
+def texte_debut(jour: Date, heure: time | None = None) -> str:
+    """« samedi 6 décembre 2026 à 20h30 »."""
+    texte = f"{JOURS[jour.weekday()]} {jour.day} {MOIS[jour.month - 1]} {jour.year}"
+    return texte + (f" à {heure.hour}h{heure.minute:02d}" if heure else "")
+
+
+def debut_tournoi(tournoi: dict) -> datetime | None:
+    """Heure de début du tournoi (avec fuseau), ou None pour un ancien tournoi à date en texte libre."""
+    try:
+        return datetime.combine(Date.fromisoformat(tournoi.get("date") or ""),
+                                time.fromisoformat(tournoi.get("start_time") or ""), FUSEAU_TOURNOI)
+    except (TypeError, ValueError):
+        return None
+
+
+def date_affichee(tournoi: dict, courte: bool = False) -> str:
+    """Date (et heure de début) à afficher : « samedi 6 décembre 2026 à 20h30 » ou, courte, « 06/12/2026 20h30 ».
+
+    Les anciens tournois gardent leur date en texte libre (« 6 septembre ») : affichée telle quelle.
+    """
+    texte = str(tournoi.get("date") or "?")
+    try:
+        jour = Date.fromisoformat(texte)
+    except ValueError:
+        return texte
+    try:
+        heure = time.fromisoformat(tournoi.get("start_time") or "")
+    except (TypeError, ValueError):
+        heure = None
+    if courte:
+        return jour.strftime("%d/%m/%Y") + (f" {heure.hour}h{heure.minute:02d}" if heure else "")
+    return texte_debut(jour, heure)
 
 
 def lire_date(texte: str) -> datetime:

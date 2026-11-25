@@ -14,6 +14,15 @@ def _horodatage(date_iso: str) -> int:
     return int(L.lire_date(date_iso).timestamp())
 
 
+def _date_et_debut(tournoi: dict) -> str:
+    """« samedi 6 décembre 2026 à 20h30 » + le compte à rebours Discord (« dans 3 jours »)."""
+    texte = L.date_affichee(tournoi)
+    debut = L.debut_tournoi(tournoi)
+    if debut is not None:
+        texte += f" (heure de Paris)\n🕗 Début <t:{int(debut.timestamp())}:R>"
+    return texte
+
+
 def _compteur_inscrites(tournoi: dict) -> str:
     # Les places réservées ne sont pas affichées sur l'annonce (seulement dans /tournoi_rl_status).
     return f"{len(L.equipes_inscrites(tournoi))}/{tournoi['equipes_max']}"
@@ -36,7 +45,7 @@ def embed_annonce(tournoi: dict) -> discord.Embed:
         name="🎟️ Équipes inscrites",
         value=_compteur_inscrites(tournoi),
     )
-    embed.add_field(name="📅 Date", value=tournoi["date"])
+    embed.add_field(name="📅 Date", value=_date_et_debut(tournoi))
     embed.add_field(
         name="⏳ Liste d'attente",
         value=f"{len(L.liste_attente(tournoi))}/{tournoi['liste_attente_max']}",
@@ -80,7 +89,7 @@ def embeds_status(tournoi: dict) -> list[discord.Embed]:
 
     lignes = [
         f"💰 Cashprize : **{tournoi['cashprize']}**  ·  👥 Format : **{L.format_match(tournoi['joueurs_par_equipe'])}**"
-        f"  ·  📅 Date : **{tournoi['date']}**",
+        f"  ·  📅 Date : **{L.date_affichee(tournoi)}**",
         "*✅ = a confirmé · ⏳ = n'a pas encore confirmé · 🎮 = pseudo Rocket League · `#n` = team_id*",
     ]
     if tournoi.get("ouverture_inscriptions"):

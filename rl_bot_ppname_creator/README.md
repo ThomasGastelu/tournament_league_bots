@@ -4,7 +4,7 @@
 
 | Commande | Qui | Ce qu'elle fait |
 |---|---|---|
-| `/tournoi_rl titre cashprize joueurs_par_equipe equipes_max date [delay]` | admins | Poste l'annonce avec le bouton **S'inscrire** dans le salon. `delay` = minutes avant l'ouverture des inscriptions (0 par défaut, 10080 max), pour avoir le temps de réserver des places. |
+| `/tournoi_rl titre cashprize joueurs_par_equipe equipes_max date start_time [delay]` | admins | Poste l'annonce avec le bouton **S'inscrire** dans le salon. `date` = jour du tournoi au format `JJ/MM/AAAA` (ex : `06/12/2026`), `start_time` = heure de début au format `HH:MM`, heure de Paris (ex : `20:30`, `20h30` accepté aussi). Une date ou une heure invalide, ou un début déjà passé, est refusé. `delay` = minutes avant l'ouverture des inscriptions (0 par défaut, 10080 max), pour avoir le temps de réserver des places. |
 | `/tournoi_rl_modify id [titre] [cashprize] [equipes_max]` | admins | Modifie le titre, le cashprize et/ou le nombre maximum d'équipes (au moins un des trois). L'annonce est mise à jour. |
 | `/tournoi_rl_status id` | tout le monde | Équipes inscrites, joueurs qui n'ont pas validé, liste d'attente (réponse visible par toi seul). |
 | `/tournoi_rl_status_all id` | admins | Même contenu que `/tournoi_rl_status`, mais posté dans le salon et visible par tout le monde. |
@@ -26,14 +26,14 @@ Les `id` et `team_id` sont proposés en autocomplétion. Le `team_id` est le `#n
 4. Les coéquipiers ont **30 minutes** (réglable avec `DELAI_CONFIRMATION_MINUTES` dans `.env`) pour confirmer (heure limite affichée dans les MP et dans `/tournoi_rl_status`). Passé ce délai, le bot désinscrit l'équipe automatiquement (vérification chaque minute, même après un redémarrage) et prévient tous ses joueurs en MP. Les équipes inscrites avant l'ajout de ce délai ne sont pas concernées.
 5. Si un coéquipier refuse, ne confirme pas à temps, si le capitaine annule ou si un admin retire l'équipe, la place est donnée à la première équipe de la liste d'attente, qui est prévenue en MP.
 
-Les données sont dans la base de données (si `API_URL` est rempli, voir [Base de données](#base-de-données)) ou dans `data/tournois/<id>.json` (un fichier par tournoi). Le format est le même dans les deux cas. Champs ajoutés pour l'ouverture différée et les réservations (absents des anciens fichiers, qui restent valables) :
+Les données sont dans la base de données (si `API_URL` est rempli, voir [Base de données](#base-de-données)) ou dans `data/tournois/<id>.json` (un fichier par tournoi). Le format est le même dans les deux cas. La date est enregistrée au format ISO : `"date": "2026-12-06"` et `"start_time": "20:30"` (heure de Paris). Les anciens tournois gardent leur date en texte libre (ex : `"6 septembre"`, sans `start_time`) : elle est affichée telle quelle. Champs ajoutés pour l'ouverture différée et les réservations (absents des anciens fichiers, qui restent valables) :
 - `ouverture_inscriptions` : heure d'ouverture, remise à `null` une fois les inscriptions ouvertes ;
 - `reservations` : liste de `{id, nom, capitaine_id, capitaine, statut (active / utilisee / expiree / annulee), cree_par, cree_le, expire_le, equipe_id, terminee_le}` ;
 - `reservation_id` sur une équipe inscrite grâce à une réservation.
 
 ## Ouverture différée et places réservées
 
-- Avec `delay` (ex : `/tournoi_rl … delay: 60`), l'annonce est postée tout de suite mais affiche « 🕒 Les inscriptions ouvrent dans 1 heure ». Avant cette heure, le bouton **S'inscrire** répond l'heure d'ouverture. À l'heure dite, le bot met l'annonce à jour tout seul (vérification chaque minute).
+- Avec `delay` (ex : `/tournoi_rl … delay: 60`), l'annonce est postée tout de suite mais affiche « 🕒 Les inscriptions ouvrent dans 1 heure ». Avant cette heure, le bouton **S'inscrire** répond l'heure d'ouverture. À l'heure dite, le bot met l'annonce à jour tout seul (vérification chaque minute). Les inscriptions doivent ouvrir avant le début du tournoi (`date` + `start_time`), sinon la commande est refusée.
 - `/tournoi_rl_reserve` bloque une place libre pour un capitaine précis. Les places réservées sont retirées des places ouvertes à tous : avec `equipes_max = 16` et 2 réservations, seules 14 places partent avant la liste d'attente. L'annonce n'affiche pas les places réservées (compteur `3/16`) : elles sont listées dans `/tournoi_rl_status`.
 - Le capitaine réservé s'inscrit avec le bouton **S'inscrire** habituel, **même avant l'ouverture et même si le tournoi est complet** : son équipe prend la place réservée (marquée 🔒 dans `/tournoi_rl_status`). Ses coéquipiers doivent confirmer comme d'habitude, sinon l'équipe est désinscrite et la place va à la liste d'attente.
 - Si le capitaine ne s'est pas inscrit avant l'échéance, la place est rendue automatiquement : la première équipe de la liste d'attente monte et le capitaine est prévenu en MP. Même chose avec `/tournoi_rl_unreserve`.
@@ -55,6 +55,7 @@ Avec `API_URL` et `BOT_API_KEY` dans le `.env`, le bot enregistre tout dans la b
 - C'est l'API qui applique les règles (places, liste d'attente, promotions, délais de confirmation, réservations) dans des transactions. Le bot vérifie d'abord la fiche lui-même pour garder des messages précis, puis traduit en français les refus de l'API.
 - Chaque minute, le bot appelle `POST /api/bot/maintenance/tick` : l'API désinscrit les équipes hors délai, rend les réservations échues et ouvre les inscriptions ; le bot envoie les MP et met les annonces à jour.
 - **`tournament_manager` lit toujours `data/tournois/<id>.json`** : le bot y écrit une copie de chaque tournoi à chaque changement, et recopie tous les tournois du serveur (`GUILD_ID`) au démarrage. Ces fichiers ne sont plus la référence : ne les modifie pas à la main.
+- `POST /api/bot/tournaments` reçoit `"date": "AAAA-MM-JJ"` et `"start_time": "HH:MM"` (heure de Paris), et les routes qui renvoient un tournoi doivent les renvoyer sous la même forme (`GET /tournaments?serveur_id=…` aussi, pour l'autocomplétion).
 - Si l'API ne répond pas, le joueur reçoit « Le serveur des tournois ne répond pas. Réessaie dans un instant. » et rien n'est enregistré.
 - `/tournoi_rl_modify_player` et `/tournoi_rl_modify_member` ne marchent pas encore avec l'API (pas de route pour modifier ou remplacer un joueur) : l'admin reçoit un message qui le dit, et rien n'est modifié. Elles marchent avec les fichiers JSON (sans `API_URL`).
 

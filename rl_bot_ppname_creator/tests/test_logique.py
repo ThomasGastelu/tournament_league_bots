@@ -11,7 +11,7 @@ T0 = "2026-08-31T18:00:00"
 def tournoi(joueurs_par_equipe=2, equipes_max=2):
     return L.nouveau_tournoi(
         tournoi_id="1544015944353976341", titre="caca", cashprize="100",
-        joueurs_par_equipe=joueurs_par_equipe, equipes_max=equipes_max, date="6 septembre",
+        joueurs_par_equipe=joueurs_par_equipe, equipes_max=equipes_max, date="06/09/2026", start_time="20:30",
         serveur_id="1", salon_id="2", cree_par="9", maintenant=T0,
     )
 
@@ -481,3 +481,61 @@ def test_remplacer_joueur_refuse():
     with pytest.raises(L.ErreurTournoi, match="vide"):
         L.remplacer_joueur(t, "c1", ("z", "Zoe"), "   ")
     assert [j["id"] for j in e["joueurs"]] == ["c1", "j1a"]  # rien n'a bougé
+
+
+# --------------------------------------------------------------------------- #
+# Date et heure de début (/tournoi_rl date start_time)
+# --------------------------------------------------------------------------- #
+
+def nouveau(date="06/09/2026", start_time="20:30", delai=0):
+    return L.nouveau_tournoi(
+        tournoi_id="1", titre="caca", cashprize="100", joueurs_par_equipe=2, equipes_max=2, date=date,
+        start_time=start_time, serveur_id="1", salon_id="2", cree_par="9", maintenant=T0,
+        delai_ouverture_minutes=delai)
+
+
+def test_date_et_heure_de_debut_enregistrees_au_format_iso():
+    t = nouveau(date="6/9/2026", start_time="20h05")
+    assert (t["date"], t["start_time"]) == ("2026-09-06", "20:05")
+    assert L.debut_tournoi(t).isoformat() == "2026-09-06T20:05:00+02:00"  # heure d'été à Paris
+    assert L.date_affichee(t) == "dimanche 6 septembre 2026 à 20h05"
+    assert L.date_affichee(t, courte=True) == "06/09/2026 20h05"
+
+
+@pytest.mark.parametrize("date", ["6 septembre", "31/02/2026", "2026-09-06", "06/13/2026", ""])
+def test_date_invalide_refusee(date):
+    with pytest.raises(L.ErreurTournoi, match="Date invalide.*JJ/MM/AAAA"):
+        nouveau(date=date)
+
+
+@pytest.mark.parametrize("heure", ["24:00", "20:60", "midi", "20:3", ""])
+def test_heure_invalide_refusee(heure):
+    with pytest.raises(L.ErreurTournoi, match="Heure invalide.*HH:MM"):
+        nouveau(start_time=heure)
+
+
+def test_heures_acceptees():
+    assert [nouveau(start_time=h)["start_time"] for h in ["20:30", "9:05", "20h", "20H30", "20"]] == \
+        ["20:30", "09:05", "20:00", "20:30", "20:00"]
+
+
+def test_debut_passe_refuse():
+    # T0 = 31/08/2026 18:00 (heure locale de la machine de test, comparée en heure de Paris)
+    with pytest.raises(L.ErreurTournoi, match="déjà passé"):
+        nouveau(date="30/08/2026")
+    with pytest.raises(L.ErreurTournoi, match="déjà passé"):
+        L.nouveau_tournoi(tournoi_id="1", titre="t", cashprize="1", joueurs_par_equipe=1, equipes_max=1,
+                          date="31/08/2026", start_time="18:00", serveur_id="1", salon_id="2", cree_par="9",
+                          maintenant="2026-08-31T18:00:00+02:00")
+
+
+def test_ouverture_des_inscriptions_apres_le_debut_refusee():
+    with pytest.raises(L.ErreurTournoi, match="après le début"):
+        nouveau(date="31/08/2026", start_time="21:00", delai=4 * 60)  # T0 + 4 h > 21h
+
+
+def test_ancien_tournoi_a_date_en_texte_libre_affiche_tel_quel():
+    ancien = {"date": "6 septembre"}
+    assert L.date_affichee(ancien) == "6 septembre"
+    assert L.debut_tournoi(ancien) is None
+    assert L.date_affichee({"date": "2026-09-06"}) == "dimanche 6 septembre 2026"

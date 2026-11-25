@@ -36,7 +36,7 @@ CLE = "k" * 40
 def tournoi_api(**champs):
     t = L.nouveau_tournoi(
         tournoi_id="1573714661659123762", titre="caca", cashprize="100", joueurs_par_equipe=2, equipes_max=1,
-        date="6 septembre", serveur_id="1540386765054148639", salon_id="1543205821490528366",
+        date="06/12/2026", start_time="20:30", serveur_id="1540386765054148639", salon_id="1543205821490528366",
         cree_par="543505378210611220", maintenant="2026-11-21T15:00:14.000Z")
     t.update(champs)
     return t
@@ -247,7 +247,7 @@ def test_parcours_complet_avec_la_vraie_api(monde_api, monkeypatch):
 
     inter = _inter(client, j["Admin"])
     lancer(tournoi_rl.callback(inter, titre="Tomato API", cashprize="100€", joueurs_par_equipe=2, equipes_max=1,
-                               date="6 septembre"))
+                               date="06/09/2099", start_time="20:30"))
     tid = str(inter.id)
     assert "créé" in inter.dernier_texte(), inter.dernier_texte()
     t = lancer(st.lire(tid))
@@ -325,7 +325,7 @@ def test_ouverture_differee_et_place_reservee_avec_la_vraie_api(monde_api, monke
 
     inter = _inter(client, j["Admin"])
     lancer(tournoi_rl.callback(inter, titre="Tomato différé", cashprize="50€", joueurs_par_equipe=2,
-                               equipes_max=2, date="7 septembre", delay=60))
+                               equipes_max=2, date="07/09/2099", start_time="21:00", delay=60))
     tid = str(inter.id)
     assert "Les inscriptions ouvrent" in inter.dernier_texte(), inter.dernier_texte()
 

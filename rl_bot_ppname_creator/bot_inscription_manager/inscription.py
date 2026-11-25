@@ -246,7 +246,7 @@ class FicheInscription(ui.Modal):
         invitation = (
             f"👋 **{capitaine.display_name}** t'a inscrit dans l'équipe **{equipe['nom']}** "
             f"pour le tournoi **{tournoi['titre']}** "
-            f"({L.format_match(tournoi['joueurs_par_equipe'])}, {tournoi['date']}, cashprize {tournoi['cashprize']}).\n"
+            f"({L.format_match(tournoi['joueurs_par_equipe'])}, {L.date_affichee(tournoi)}, cashprize {tournoi['cashprize']}).\n"
             f"Clique sur **Confirmer ma participation** : on te demandera ton pseudo Rocket League, "
             f"**exactement le même que dans le jeu**, sinon on ne pourra pas t'évaluer.\n"
             f"⏰ Tu as **{L.delai_minutes(equipe)} minutes** pour confirmer (avant {heure_limite(equipe)}), "
@@ -544,7 +544,7 @@ def texte_reservation(tournoi: dict, reservation: dict) -> str:
     lien = f"https://discord.com/channels/{tournoi['serveur_id']}/{tournoi['salon_id']}/{tournoi['message_id']}"
     return (
         f"🔒 Une place t'est réservée pour l'équipe **{reservation['nom']}** au tournoi **{tournoi['titre']}** "
-        f"({L.format_match(tournoi['joueurs_par_equipe'])}, {tournoi['date']}, cashprize {tournoi['cashprize']}).\n"
+        f"({L.format_match(tournoi['joueurs_par_equipe'])}, {L.date_affichee(tournoi)}, cashprize {tournoi['cashprize']}).\n"
         f"Inscris ton équipe avec le bouton **S'inscrire** de l'annonce ({lien}) "
         f"avant {horaire(reservation['expire_le'])}, sinon la place sera rendue aux autres équipes. "
         f"Tu peux le faire dès maintenant, même si les inscriptions ne sont pas encore ouvertes."
@@ -558,7 +558,7 @@ async def prevenir_promues(
     for promue in promues:
         texte = (
             f"🎉 {raison} : l'équipe **{promue['nom']}** passe de la liste d'attente "
-            f"aux équipes inscrites du tournoi **{tournoi['titre']}** ({tournoi['date']}) !"
+            f"aux équipes inscrites du tournoi **{tournoi['titre']}** ({L.date_affichee(tournoi)}) !"
         )
         for joueur in promue["joueurs"]:
             await envoyer_mp(client, joueur["id"], texte)
