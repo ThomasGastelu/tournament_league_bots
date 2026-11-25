@@ -34,6 +34,31 @@ AVERTISSEMENT_SIMULATION = ("⚠️ Mode simulation (SIMULATION=1) : les capitai
                             "un tournoi de test, et à remettre à 0 avant un vrai tournoi.")
 
 
+async def vider_commandes_globales(tree: app_commands.CommandTree) -> None:
+    """Avec GUILD_ID : supprime les anciennes commandes globales (enregistrées un jour sans GUILD_ID).
+
+    Sinon Discord affiche chaque commande en double sur le serveur : la version du serveur
+    et l'ancienne version globale, qui n'a pas les nouvelles options.
+    """
+    tree.clear_commands(guild=None)
+    try:
+        await tree.sync()
+    except discord.HTTPException as erreur:
+        log.warning("Anciennes commandes globales non supprimées (%s) : des commandes peuvent "
+                    "apparaître en double sur Discord.", erreur)
+
+
+async def vider_commandes_des_serveurs(tree: app_commands.CommandTree, serveurs) -> None:
+    """Sans GUILD_ID : supprime les anciennes commandes enregistrées serveur par serveur
+    (quand GUILD_ID était rempli), qui feraient doublon avec les commandes globales."""
+    for serveur in serveurs:
+        tree.clear_commands(guild=serveur)
+        try:
+            await tree.sync(guild=serveur)
+        except discord.HTTPException as erreur:
+            log.warning("Anciennes commandes du serveur %s non supprimées (%s).", serveur.id, erreur)
+
+
 class BotTournoi(discord.Client):
     def __init__(self, config: Config) -> None:
         # Intents par défaut : pas besoin des intents privilégiés.
@@ -93,6 +118,7 @@ class BotTournoi(discord.Client):
                     "ou GUILD_ID n'est pas le bon.\n"
                     f"Invite le bot avec ce lien (puis relance-le) :\n{self.lien_invitation()}"
                 ) from erreur
+            await vider_commandes_globales(self.tree)
         else:
             commandes = await self.tree.sync()
         log.info("Commandes enregistrées : %s", ", ".join(f"/{c.name}" for c in commandes))
@@ -107,6 +133,8 @@ class BotTournoi(discord.Client):
         if self._demarrage_annonce:
             return  # on_ready revient après chaque reconnexion
         self._demarrage_annonce = True
+        if not self.config.serveur_id:
+            await vider_commandes_des_serveurs(self.tree, self.guilds)
         if self.config.simulation:
             log.warning(AVERTISSEMENT_SIMULATION)
 

@@ -29,6 +29,7 @@ class BotTournoi(discord.Client):
         super().__init__(intents=discord.Intents.default())
         self.stockage = stockage
         self.serveur_id = serveur_id
+        self._doublons_nettoyes = False
         self.tree = app_commands.CommandTree(self)
         self.tree.error(gerer_erreur)
         for commande in COMMANDES:
@@ -43,6 +44,7 @@ class BotTournoi(discord.Client):
             serveur = discord.Object(id=self.serveur_id)
             self.tree.copy_global_to(guild=serveur)
             commandes = await self.tree.sync(guild=serveur)
+            await vider_commandes_globales(self.tree)
         else:
             commandes = await self.tree.sync()
         log.info("Commandes enregistrées : %s", ", ".join(f"/{c.name}" for c in commandes))
@@ -64,6 +66,9 @@ class BotTournoi(discord.Client):
 
     async def on_ready(self) -> None:
         log.info("Connecté en tant que %s", self.user)
+        if not self.serveur_id and not self._doublons_nettoyes:
+            self._doublons_nettoyes = True  # on_ready revient après chaque reconnexion
+            await vider_commandes_des_serveurs(self.tree, self.guilds)
 
     @tasks.loop(minutes=1)
     async def verifier_delais(self) -> None:
@@ -80,6 +85,31 @@ class BotTournoi(discord.Client):
     @verifier_delais.before_loop
     async def avant_verifier_delais(self) -> None:
         await self.wait_until_ready()
+
+
+async def vider_commandes_globales(tree: app_commands.CommandTree) -> None:
+    """Avec GUILD_ID : supprime les anciennes commandes globales (enregistrées un jour sans GUILD_ID).
+
+    Sinon Discord affiche chaque commande en double sur le serveur : la version du serveur
+    et l'ancienne version globale, qui n'a pas les nouvelles options.
+    """
+    tree.clear_commands(guild=None)
+    try:
+        await tree.sync()
+    except discord.HTTPException as erreur:
+        log.warning("Anciennes commandes globales non supprimées (%s) : des commandes peuvent "
+                    "apparaître en double sur Discord.", erreur)
+
+
+async def vider_commandes_des_serveurs(tree: app_commands.CommandTree, serveurs) -> None:
+    """Sans GUILD_ID : supprime les anciennes commandes enregistrées serveur par serveur
+    (quand GUILD_ID était rempli), qui feraient doublon avec les commandes globales."""
+    for serveur in serveurs:
+        tree.clear_commands(guild=serveur)
+        try:
+            await tree.sync(guild=serveur)
+        except discord.HTTPException as erreur:
+            log.warning("Anciennes commandes du serveur %s non supprimées (%s).", serveur.id, erreur)
 
 
 AIDE_TOKEN = (

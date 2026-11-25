@@ -105,6 +105,8 @@ python3 -m venv .venv
 ```
 Le bot doit rester lancé pour que les boutons fonctionnent. S'il redémarre, les anciens boutons remarchent.
 
+**Commande en double dans Discord ?** (ex. deux `/tournoi_rl`) : c'est une ancienne version enregistrée « globalement » (sans `GUILD_ID`) en plus de celle du serveur. Au démarrage, le bot supprime tout seul les commandes de l'autre mode : relance-le, puis fais **Ctrl+R** dans Discord pour rafraîchir la liste.
+
 ### Tests
 Windows (PowerShell) :
 ```powershell

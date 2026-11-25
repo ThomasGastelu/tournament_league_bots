@@ -323,6 +323,8 @@ python3 -m venv .venv
 .venv/bin/python -m bot_tournament_manager
 ```
 
+**Commande en double dans Discord ?** (ex. deux `/start_tournament_rl`) : c'est une ancienne version enregistrée « globalement » (sans `GUILD_ID`) en plus de celle du serveur. Au démarrage, le bot supprime tout seul les commandes de l'autre mode : relance-le, puis fais **Ctrl+R** dans Discord pour rafraîchir la liste.
+
 ### Tests
 Windows (PowerShell) :
 ```powershell
