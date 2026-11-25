@@ -45,13 +45,21 @@ def _filtrer(choix: list[app_commands.Choice], actuel: str) -> list[app_commands
 async def autocomplete_inscription(interaction: discord.Interaction, actuel: str) -> list[app_commands.Choice[str]]:
     """Tournois d'inscription du serveur qui ne sont pas déjà en cours."""
     g = gestionnaire(interaction)
+    try:
+        await g.stockage.rafraichir_inscriptions(str(interaction.guild_id))  # mode API : relit la liste
+    except L.ErreurTournoi as erreur:
+        log.warning("Autocomplétion : liste des tournois indisponible (%s)", erreur)
+        return []
     choix = []
     for tournoi in g.stockage.lister_inscriptions(str(interaction.guild_id))[:100]:
         etat = g.stockage.charger_etat(tournoi["id"])
         if etat and etat["statut"] == L.EN_COURS:
             continue
-        nb = sum(1 for e in tournoi.get("equipes", []) if e.get("statut") == L.INSCRITE)
-        nom = f"{tournoi['titre']} — {tournoi.get('date', '?')} — {nb} équipes ({tournoi['id']})"
+        if "equipes" in tournoi:
+            nb = sum(1 for e in tournoi["equipes"] if e.get("statut") == L.INSCRITE)
+            nom = f"{tournoi['titre']} — {tournoi.get('date', '?')} — {nb} équipes ({tournoi['id']})"
+        else:  # mode API : la liste ne donne pas les équipes
+            nom = f"{tournoi['titre']} — {tournoi.get('date') or '?'} ({tournoi['id']})"
         choix.append(app_commands.Choice(name=nom[:100], value=tournoi["id"]))
     return _filtrer(choix, actuel)
 
@@ -131,6 +139,17 @@ async def autocomplete_gagnant(interaction: discord.Interaction, actuel: str) ->
 # /start_tournament_rl
 # --------------------------------------------------------------------------- #
 
+async def relire_inscription(interaction: discord.Interaction, tournoi_id: str) -> str | None:
+    """Mode API : relit l'inscription du tournoi dans l'API (rien en mode fichiers).
+    Renvoie le message d'erreur à montrer si l'API ne répond pas."""
+    try:
+        await gestionnaire(interaction).stockage.rafraichir_inscription(str(tournoi_id).strip())
+    except L.ErreurTournoi as erreur:
+        log.warning("Inscription du tournoi %s illisible dans l'API : %s", tournoi_id, erreur)
+        return f"❌ {erreur}"
+    return None
+
+
 def probleme_salon(interaction: discord.Interaction, tournoi_id: str) -> str | None:
     """Message d'erreur si le bot ne peut pas poster les annonces du tournoi
     (dans SALON_ANNONCES, ou à défaut dans le salon du tournoi)."""
@@ -208,7 +227,7 @@ def probleme_salon_discussion(interaction: discord.Interaction, tournoi_id: str)
 async def start_tournament_init(interaction: discord.Interaction, id_tournoi: str,
                                 delai_confirmation: app_commands.Range[int, 1, 1440]) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
-    probleme = probleme_salon_discussion(interaction, id_tournoi)
+    probleme = await relire_inscription(interaction, id_tournoi) or probleme_salon_discussion(interaction, id_tournoi)
     if probleme:
         log.info("/start_tournament_init %s refusé (demandé par %s) : permissions du bot", id_tournoi,
                  interaction.user)
@@ -245,7 +264,7 @@ async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
                               nombre_de_matchs: app_commands.Range[int, 1, 50],
                               golden_round: app_commands.Range[int, 1, 50] = 1) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
-    probleme = probleme_salon(interaction, id_tournoi)
+    probleme = await relire_inscription(interaction, id_tournoi) or probleme_salon(interaction, id_tournoi)
     if probleme:
         log.info("/start_tournament_rl %s refusé (demandé par %s) : permissions du bot", id_tournoi, interaction.user)
         return await repondre(interaction, probleme)
@@ -306,6 +325,7 @@ async def start_tournament_init_status(interaction: discord.Interaction, id_tour
     if init is None or init.get("serveur_id") != str(interaction.guild_id):
         return await repondre(interaction, f"❌ Pas de `/start_tournament_init` pour le tournoi `{tournoi_id}` "
                                            "sur ce serveur.")
+    await relire_inscription(interaction, tournoi_id)  # sans l'API, le bilan se fait sans l'inscription
     bilan = L.bilan_validations(init, g.stockage.charger_inscription(tournoi_id))
     await repondre(interaction, None, embeds=M.embeds_init_status(init, bilan, g.stockage.charger_etat(tournoi_id)))
 

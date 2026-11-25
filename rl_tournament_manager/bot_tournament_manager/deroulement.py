@@ -155,6 +155,7 @@ class GestionnaireTournois:
     async def demarrer(self, tournoi_id: str, nombre_de_rondes: int, *, serveur_id: str, lance_par: str,
                        golden_round: int = 1) -> dict:
         tournoi_id = tournoi_id.strip()
+        await self.stockage.rafraichir_inscription(tournoi_id)  # mode API : inscription à jour
         async with self.stockage.verrou(tournoi_id):
             tournoi = self.stockage.charger_inscription(tournoi_id)
             if tournoi is None or tournoi.get("serveur_id") != serveur_id:
@@ -194,6 +195,7 @@ class GestionnaireTournois:
         « Valider ma participation », MP à la liste d'attente ; à la fin du délai, les équipes qui
         n'ont pas validé sont remplacées par la liste d'attente."""
         tournoi_id = tournoi_id.strip()
+        await self.stockage.rafraichir_inscription(tournoi_id)  # mode API : inscription à jour
         async with self.stockage.verrou(tournoi_id):
             tournoi = self.stockage.charger_inscription(tournoi_id)
             if tournoi is None or tournoi.get("serveur_id") != serveur_id:
@@ -624,6 +626,8 @@ class GestionnaireTournois:
             fin = (datetime.now() + timedelta(minutes=init["confirmation"]["delai_minutes"])).isoformat()
             perdues, promues = L.terminer_confirmation(init, fin_suivante=fin)
             self.stockage.sauvegarder_init(init)
+        # Mode API : les places perdues sont aussi annulées dans l'inscription (rien en mode fichiers).
+        await self.stockage.annuler_equipes_perdues(tournoi_id, perdues)
         termine = init["confirmation"]["terminee"]
         log.info("Tournoi %s : fin d'un délai de validation (%s place(s) perdue(s), %s équipe(s) montée(s) de la "
                  "liste d'attente%s)", tournoi_id, len(perdues), len(promues),

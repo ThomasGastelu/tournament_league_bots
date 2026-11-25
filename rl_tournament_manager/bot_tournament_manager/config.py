@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from .stockage_api import verifier_parametres
 
 RACINE = Path(__file__).resolve().parent.parent
 
@@ -21,7 +23,7 @@ class Config:
     token: str
     serveur_id: int | None
     salon_annonces: int | None
-    dossier_inscriptions: Path
+    dossier_inscriptions: Path | None  # None en mode API (API_URL rempli)
     dossier_donnees: Path
     pause_entre_rondes: float
     log_channel: int | None = None
@@ -35,6 +37,8 @@ class Config:
     simulation_proba_desaccord: float = 0
     auto_validation: bool = True      # AUTO_VALIDATION=1 : en simulation, « Valider ma participation » automatique
     pp_forcee_zone_2: tuple[str, str] | None = None  # TESTS : (nom, mot de passe) imposés à la zone 2
+    api_url: str | None = None        # API_URL : tournois enregistrés en base via l'API du site
+    bot_api_key: str | None = field(default=None, repr=False)  # BOT_API_KEY (jamais affichée)
 
 
 AIDE_TOKEN = (
@@ -123,10 +127,17 @@ def charger_config() -> Config:
         raise ErreurConfig("GUILD_ID doit contenir uniquement des chiffres "
                            "(clic droit sur le serveur > Copier l'identifiant).")
 
-    dossier_inscriptions = _chemin("DOSSIER_INSCRIPTIONS", "../rl_bot_ppname_creator/data/tournois")
-    if not dossier_inscriptions.is_dir():
-        raise ErreurConfig(f"Dossier des inscriptions introuvable : {dossier_inscriptions} "
-                           "(DOSSIER_INSCRIPTIONS dans le .env).")
+    try:
+        api = verifier_parametres(os.getenv("API_URL"), os.getenv("BOT_API_KEY"))
+    except ValueError as erreur:
+        raise ErreurConfig(str(erreur)) from None
+
+    dossier_inscriptions = None
+    if api is None:  # sans API : les fichiers copiés par le bot d'inscription
+        dossier_inscriptions = _chemin("DOSSIER_INSCRIPTIONS", "../rl_bot_ppname_creator/data/tournois")
+        if not dossier_inscriptions.is_dir():
+            raise ErreurConfig(f"Dossier des inscriptions introuvable : {dossier_inscriptions} "
+                               "(DOSSIER_INSCRIPTIONS dans le .env, ou remplis API_URL et BOT_API_KEY).")
 
     return Config(
         token=token,
@@ -146,4 +157,6 @@ def charger_config() -> Config:
         pp_forcee_zone_2=_pp_forcee("PP_FORCEE_ZONE_2"),
         log_channel=_id_salon("LOG_CHANNEL"),
         salon_resultats=_id_salon("SALON_RESULTATS"),
+        api_url=api[0] if api else None,
+        bot_api_key=api[1] if api else None,
     )

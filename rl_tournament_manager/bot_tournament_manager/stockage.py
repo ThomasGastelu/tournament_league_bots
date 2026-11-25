@@ -7,6 +7,11 @@
 
 /reset_tournament_rl efface tous ces fichiers d'un tournoi (supprimer_tournoi), jamais
 le fichier d'inscription.
+
+Avec `API_URL` (voir stockage_api.py), `StockageAPI` reprend cette classe : les fichiers
+restent une copie de secours et chaque sauvegarde est aussi envoyée à l'API. Les méthodes
+asynchrones (`rafraichir_*`, `synchroniser`, `annuler_equipes_perdues`, `fermer`) ne font
+rien ici : elles servent au mode API.
 """
 
 from __future__ import annotations
@@ -34,8 +39,9 @@ def _lire(chemin: Path) -> dict | None:
 
 
 class Stockage:
-    def __init__(self, dossier_inscriptions: Path, dossier_donnees: Path) -> None:
-        self.dossier_inscriptions = Path(dossier_inscriptions)
+    def __init__(self, dossier_inscriptions: Path | None, dossier_donnees: Path) -> None:
+        # None en mode API : les inscriptions viennent de l'API, pas d'un dossier.
+        self.dossier_inscriptions = Path(dossier_inscriptions) if dossier_inscriptions is not None else None
         self.dossier_donnees = Path(dossier_donnees)
         self.dossier_etats = self.dossier_donnees / "tournois"
         self.dossier_pp = self.dossier_donnees / "pp"
@@ -52,6 +58,8 @@ class Stockage:
     # --- Fichiers d'inscription (lecture seule) --------------------------- #
 
     def charger_inscription(self, tournoi_id: str) -> dict | None:
+        if self.dossier_inscriptions is None:
+            return None
         try:
             return _lire(self.dossier_inscriptions / f"{_verifier_id(tournoi_id)}.json")
         except ValueError:
@@ -59,6 +67,22 @@ class Stockage:
 
     def lister_inscriptions(self, serveur_id: str | None = None) -> list[dict]:
         return self._lister(self.dossier_inscriptions, "id", serveur_id)
+
+    async def rafraichir_inscription(self, tournoi_id: str) -> None:
+        """Mode API : relit l'inscription d'un tournoi avant `charger_inscription`. Ici : rien à faire."""
+
+    async def rafraichir_inscriptions(self, serveur_id: str) -> None:
+        """Mode API : relit la liste des tournois d'un serveur avant `lister_inscriptions`. Ici : rien à faire."""
+
+    async def annuler_equipes_perdues(self, tournoi_id: str, equipes: list[dict]) -> None:
+        """Mode API : annule dans l'inscription les équipes qui n'ont pas validé à temps.
+        En mode fichiers, ce bot ne modifie jamais le fichier d'inscription."""
+
+    async def synchroniser(self, serveur_id: str | None) -> None:
+        """Mode API : au démarrage, récupère l'état des tournois et renvoie ce qui n'est pas parti."""
+
+    async def fermer(self) -> None:
+        """Mode API : arrêt du bot (envois en attente, connexion HTTP)."""
 
     # --- État des tournois lancés ---------------------------------------- #
 
@@ -151,9 +175,11 @@ class Stockage:
     # --------------------------------------------------------------------- #
 
     @staticmethod
-    def _lister(dossier: Path, cle_id: str, serveur_id: str | None) -> list[dict]:
+    def _lister(dossier: Path | None, cle_id: str, serveur_id: str | None) -> list[dict]:
         """Tous les fichiers du dossier (du plus récent au plus ancien), éventuellement d'un seul serveur."""
         resultats = []
+        if dossier is None:
+            return resultats
         for chemin in dossier.glob("*.json"):
             try:
                 donnees = json.loads(chemin.read_text(encoding="utf-8"))

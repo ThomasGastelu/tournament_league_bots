@@ -177,6 +177,25 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
 
 `/reset_tournament_rl` efface les trois fichiers d'un tournoi (`data/tournois/`, `data/pp/`, `data/archives/`), jamais son fichier d'inscription.
 
+### Base de données (`API_URL`)
+
+Avec `API_URL` et `BOT_API_KEY` remplis dans le `.env`, les tournois sont enregistrés dans la base du site, via son API (routes `/api/bot/*`), comme pour le bot d'inscription :
+
+- **Inscriptions** : lues dans l'API (plus besoin de `DOSSIER_INSCRIPTIONS`).
+- **État et init** : toujours écrits d'abord dans `data/` (copie de secours, le bot continue de la lire), puis envoyés à l'API en arrière-plan. Si l'API ne répond pas, le tournoi continue : le bot réessaie, prévient dans `LOG_CHANNEL`, et renvoie l'état complet dès qu'elle répond. Les envois en attente sont notés dans `data/synchro/<id>.json` et repris au redémarrage.
+- **Au démarrage**, le bot récupère dans l'API les tournois absents de `data/` (bot déplacé sur un autre PC…). Sans `GUILD_ID`, seuls les tournois en cours sont récupérés.
+- **Pas d'archive** : relancer un tournoi efface l'ancien lancement, ici et dans la base.
+- `/reset_tournament_rl` efface aussi le lancement et l'init dans la base, jamais l'inscription.
+- **Places perdues** (`/start_tournament_init`) : les équipes qui n'ont pas validé à temps sont aussi annulées dans l'inscription (raison « participation non validée à temps »).
+- **Supprimer le tournoi** côté inscription (`/tournoi_rl_remove`) efface aussi ses résultats dans la base.
+
+Import unique des fichiers d'avant `API_URL` (tournois lancés et inits ; ce qui est déjà en base n'est jamais écrasé, les archives ne sont pas importées) :
+```powershell
+.venv\Scripts\python -m bot_tournament_manager.importer
+```
+
+`API_URL` vide : tout reste dans les fichiers, comme avant.
+
 ### `data/tournois/<id>.json`
 
 ```json
@@ -304,6 +323,7 @@ Remplis le fichier `.env` (modèle : `.env.example`) :
 - `SALON_ANNONCES` (facultatif) : l'ID du salon des annonces ;
 - `SALON_RESULTATS` (facultatif) : l'ID du salon où le bot poste le récap de chaque round (ex. `#resultat-match`) ;
 - `LOG_CHANNEL` (conseillé) : l'ID du salon privé des alertes.
+- `API_URL` et `BOT_API_KEY` (facultatif) : l'adresse de l'API du site et la même clé que dans son `.env`, pour enregistrer les tournois dans la base (voir [Base de données](#base-de-données-api_url)).
 
 Pour copier un ID : Paramètres Discord > Avancés > **Mode développeur**, puis clic droit sur le salon > **Copier l'identifiant du salon**.
 

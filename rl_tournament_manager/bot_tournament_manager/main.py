@@ -18,6 +18,7 @@ from .deroulement import GestionnaireTournois, MessagerieDiscord, permissions_ma
 from .journal import HORS_JOURNAL, JournalDiscord
 from .simulation import Simulation
 from .stockage import Stockage
+from .stockage_api import StockageAPI
 
 log = logging.getLogger("tournament_manager")
 
@@ -59,6 +60,16 @@ async def vider_commandes_des_serveurs(tree: app_commands.CommandTree, serveurs)
             log.warning("Anciennes commandes du serveur %s non supprimées (%s).", serveur.id, erreur)
 
 
+def choisir_stockage(config: Config) -> Stockage:
+    """API_URL rempli : la base de données via l'API (data/ garde une copie de secours).
+    API_URL vide : les fichiers JSON seuls, comme avant."""
+    if config.api_url and config.bot_api_key:
+        log.info("Tournois enregistrés dans la base de données via %s", config.api_url)
+        return StockageAPI(config.api_url, config.bot_api_key, config.dossier_donnees)
+    log.info("Tournois enregistrés dans les fichiers JSON (API_URL vide)")
+    return Stockage(config.dossier_inscriptions, config.dossier_donnees)
+
+
 class BotTournoi(discord.Client):
     def __init__(self, config: Config) -> None:
         # Intents par défaut : pas besoin des intents privilégiés.
@@ -68,7 +79,7 @@ class BotTournoi(discord.Client):
         self.config = config
         self.messagerie = MessagerieDiscord(self, config.salon_annonces, config.log_channel, config.salon_resultats)
         self.gestionnaire = GestionnaireTournois(
-            Stockage(config.dossier_inscriptions, config.dossier_donnees),
+            choisir_stockage(config),
             self.messagerie,
             pause_entre_rondes=config.pause_entre_rondes,
             rappel_clic_pp=config.rappel_clic_pp,
@@ -123,6 +134,9 @@ class BotTournoi(discord.Client):
             commandes = await self.tree.sync()
         log.info("Commandes enregistrées : %s", ", ".join(f"/{c.name}" for c in commandes))
 
+        # Mode API : envois pas encore partis, tournois absents de data/ (rien en mode fichiers).
+        await self.gestionnaire.stockage.synchroniser(str(self.config.serveur_id) if self.config.serveur_id
+                                                      else None)
         repris = self.gestionnaire.reprendre()
         if repris:
             log.info("Tournoi(s) repris après redémarrage : %s", ", ".join(repris))
@@ -187,6 +201,7 @@ class BotTournoi(discord.Client):
 
     async def close(self) -> None:
         await self.gestionnaire.fermer()
+        await self.gestionnaire.stockage.fermer()
         if self.journal:
             for nom in LOGGERS_JOURNAL:
                 logging.getLogger(nom).removeHandler(self.journal)
