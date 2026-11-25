@@ -1,19 +1,29 @@
 import json
 
 from bot_tournament_manager.commandes import COMMANDES
-from bot_tournament_manager.pp import generer_parties, lettres
+from bot_tournament_manager.pp import generer_parties, nom_partie
 
 
-def test_parties_tomato_une_lettre_par_zone(tmp_path):
+def test_parties_tomato_round_puis_zone(tmp_path):
     sortie = tmp_path / "pp" / "1_ronde_1.json"
-    parties = generer_parties(4, sortie)
-    assert parties == [{"match": i, "nom": f"tomato_{l}", "mot_de_passe": f"tomato_{l}"}
-                       for i, l in enumerate("ABCD", start=1)]
+    parties = generer_parties(4, sortie, 1)
+    assert parties == [{"match": i, "nom": f"tomato_1{i}", "mot_de_passe": f"tomato_1{i}"} for i in range(1, 5)]
     assert json.loads(sortie.read_text(encoding="utf-8"))["parties"] == parties
 
 
-def test_lettres_apres_z():
-    assert [lettres(n) for n in (1, 2, 26, 27, 28, 52, 53)] == ["A", "B", "Z", "AA", "AB", "AZ", "BA"]
+def test_noms_rounds_suivants(tmp_path):
+    assert [p["nom"] for p in generer_parties(4, tmp_path / "r2.json", 2)] == [
+        "tomato_21", "tomato_22", "tomato_23", "tomato_24"]
+    assert [p["nom"] for p in generer_parties(4, tmp_path / "r12.json", 12)] == [
+        "tomato_121", "tomato_122", "tomato_123", "tomato_124"]
+
+
+def test_zone_sur_deux_chiffres_a_partir_de_10_zones():
+    assert [nom_partie(1, z, 12) for z in (1, 9, 10, 12)] == ["tomato_101", "tomato_109", "tomato_110", "tomato_112"]
+    assert nom_partie(11, 1, 12) == "tomato_1101"
+    for nb_zones in (4, 9, 10, 12, 99, 100):
+        noms = [nom_partie(r, z, nb_zones) for r in range(1, 51) for z in range(1, nb_zones + 1)]
+        assert len(noms) == len(set(noms))  # aucun doublon sur tout un tournoi (50 rounds max)
 
 
 def test_noms_des_commandes():

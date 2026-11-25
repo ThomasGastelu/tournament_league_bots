@@ -11,7 +11,7 @@ est refusé tant que /start_tournament_init n'a pas été fait, ou que le délai
 
 Pour chaque round :
   1. tirage (round 1) ou rotation des zones (rounds suivants) ;
-  2. parties privées tomato_A, tomato_B… (une lettre par zone, voir pp.py) ;
+  2. parties privées tomato_11, tomato_12… au round 1, tomato_21… au round 2 (voir pp.py) ;
   3. tous les matchs se jouent en même temps : MP au capitaine de l'équipe A
      (créer la partie, bouton « Partie privée créée ») et aux autres joueurs (la
      rejoindre) ;
@@ -120,7 +120,7 @@ class GestionnaireTournois:
         attente_clic_pp_max: float = 600,
         delai_declaration: float = 360,
         pp_forcee_zone_2: tuple[str, str] | None = None,
-        generer_pp: Callable[[int, Path], list[dict]] = generer_parties,
+        generer_pp: Callable[[int, Path, int], list[dict]] = generer_parties,
         rng: random.Random | None = None,
         simulation: Simulation | None = None,
     ) -> None:
@@ -703,7 +703,7 @@ class GestionnaireTournois:
                 affectations = L.premier_tirage([e["id"] for e in etat["equipes"].values()], self.rng)
             numero = len(etat["rondes"]) + 1
             chemin = self.stockage.chemin_pp(tournoi_id, numero)
-            parties = await asyncio.to_thread(self.generer_pp, len(affectations), chemin)
+            parties = await asyncio.to_thread(self.generer_pp, len(affectations), chemin, numero)
             if self.pp_forcee_zone_2 and len(parties) >= 2:  # TESTS uniquement (PP_FORCEE_ZONE_2)
                 nom_pp, mot_de_passe = self.pp_forcee_zone_2
                 parties[1] = {**parties[1], "nom": nom_pp, "mot_de_passe": mot_de_passe}
