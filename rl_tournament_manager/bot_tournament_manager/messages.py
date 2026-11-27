@@ -910,6 +910,36 @@ def embeds_resultats_ronde(etat: dict, ronde: dict) -> list[discord.Embed]:
                    f"ID tournoi : {etat['tournoi_id']}")
 
 
+def _code_pp(valeur: str) -> str:
+    return f"`{valeur.replace('`', chr(39))}`"
+
+
+def embeds_pp(etat: dict) -> list[discord.Embed]:
+    """/start_tournament_rl_pp : nom et mot de passe de toutes les parties privées du tournoi
+    (chaque round, zone haute en premier, puis la finale s'il y en a une). Réservé aux admins, en éphémère."""
+    lignes = []
+    for ronde in etat["rondes"]:
+        if lignes:
+            lignes.append("")
+        lignes.append(f"**🎯 Round {ronde['numero']}/{etat['nombre_de_rondes']}**")
+        for match in sorted(ronde["matchs"], key=lambda m: m["zone"], reverse=True):
+            pp = match["pp"]
+            lignes.append(f"{zone_titre(etat, match['zone'])} · **{_nom(etat, match['equipe_a'])}** 🆚 "
+                          f"**{_nom(etat, match['equipe_b'])}** · 🔑 {_code_pp(pp['nom'])} / "
+                          f"{_code_pp(pp['mot_de_passe'])}")
+    finale = etat.get("match_finale")
+    if finale:
+        if lignes:
+            lignes.append("")
+        lignes.append("**🏆 Finale (BO3)**")
+        lignes.append(f"**{_nom(etat, finale['equipe_a'])}** 🆚 **{_nom(etat, finale['equipe_b'])}** · 🔑 "
+                      f"{_code_pp(finale['pp']['nom'])} / {_code_pp(finale['pp']['mot_de_passe'])}")
+    if not lignes:
+        lignes.append("⏳ Pas encore de partie privée : le premier round n'a pas commencé.")
+    return _embeds(f"🔑 {etat['titre']} — parties privées", lignes,
+                   f"Nom / mot de passe · 🔒 ne partage pas ce message · ID : {etat['tournoi_id']}")
+
+
 def embeds_status(etat: dict) -> list[discord.Embed]:
     ronde = L.ronde_actuelle(etat)
     lignes = [

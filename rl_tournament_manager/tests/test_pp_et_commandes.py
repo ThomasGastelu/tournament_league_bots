@@ -32,7 +32,7 @@ def test_noms_des_commandes():
     assert [c.name for c in COMMANDES] == [
         "start_tournament_rl", "start_tournament_rl_status", "stop_tournament_rl", "set_result_tournament_rl",
         "edit_player_tournament_rl", "reset_tournament_rl", "start_tournament_init", "start_tournament_modify_pp",
-        "start_tournament_init_status"]
+        "start_tournament_init_status", "start_tournament_rl_pp"]
     start = COMMANDES[0]
     assert [p.name for p in start.parameters] == ["id_tournoi", "nombre_de_matchs", "finals", "golden_round",
                                                   "zone_1", "zone_2", "zone_3", "zone_4"]

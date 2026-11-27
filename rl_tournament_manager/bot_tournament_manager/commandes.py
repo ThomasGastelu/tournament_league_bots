@@ -1,5 +1,5 @@
 """Commandes slash : /start_tournament_init, /start_tournament_init_status, /start_tournament_rl,
-/start_tournament_rl_status, /start_tournament_modify_pp, /stop_tournament_rl, /reset_tournament_rl, /set_result_tournament_rl
+/start_tournament_rl_status, /start_tournament_rl_pp, /start_tournament_modify_pp, /stop_tournament_rl, /reset_tournament_rl, /set_result_tournament_rl
 et /edit_player_tournament_rl."""
 
 from __future__ import annotations
@@ -338,6 +338,25 @@ async def start_tournament_rl_status(interaction: discord.Interaction, id_tourno
 
 
 # --------------------------------------------------------------------------- #
+# /start_tournament_rl_pp
+# --------------------------------------------------------------------------- #
+
+@app_commands.command(name="start_tournament_rl_pp",
+                      description="Affiche le nom et le mot de passe de toutes les parties privées d'un tournoi")
+@app_commands.describe(id_tournoi="ID du tournoi")
+@app_commands.autocomplete(id_tournoi=autocomplete_etat)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def start_tournament_rl_pp(interaction: discord.Interaction, id_tournoi: str) -> None:
+    """Admins seulement, réponse éphémère : la liste contient les mots de passe."""
+    etat = gestionnaire(interaction).stockage.charger_etat(id_tournoi.strip())
+    if etat is None or etat.get("serveur_id") != str(interaction.guild_id):
+        return await repondre(interaction, f"❌ Aucun tournoi lancé avec l'ID `{id_tournoi}` sur ce serveur.")
+    log.info("/start_tournament_rl_pp %s demandé par %s", etat["tournoi_id"], interaction.user)
+    await repondre(interaction, None, embeds=M.embeds_pp(etat))
+
+
+# --------------------------------------------------------------------------- #
 # /stop_tournament_rl
 # --------------------------------------------------------------------------- #
 
@@ -535,7 +554,7 @@ async def edit_player_tournament_rl(
 
 COMMANDES = [start_tournament_rl, start_tournament_rl_status, stop_tournament_rl, set_result_tournament_rl,
              edit_player_tournament_rl, reset_tournament_rl, start_tournament_init, start_tournament_modify_pp,
-             start_tournament_init_status]
+             start_tournament_init_status, start_tournament_rl_pp]
 
 
 async def gerer_erreur(interaction: discord.Interaction, erreur: app_commands.AppCommandError) -> None:
