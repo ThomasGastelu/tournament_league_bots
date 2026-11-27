@@ -41,7 +41,7 @@ import discord
 from . import logique as L
 from . import messages as M
 from .journal import HORS_JOURNAL
-from .pp import generer_parties
+from .pp import generer_parties, partie_finale
 from .stockage import Stockage
 
 if TYPE_CHECKING:
@@ -153,7 +153,8 @@ class GestionnaireTournois:
         return tache is not None and not tache.done()
 
     async def demarrer(self, tournoi_id: str, nombre_de_rondes: int, *, serveur_id: str, lance_par: str,
-                       golden_round: int = 1, points_zones: dict[int, int] | None = None) -> dict:
+                       golden_round: int = 1, points_zones: dict[int, int] | None = None,
+                       finale: bool = False) -> dict:
         tournoi_id = tournoi_id.strip()
         async with self.stockage.verrou(tournoi_id):
             tournoi = self.stockage.charger_inscription(tournoi_id)
@@ -175,7 +176,7 @@ class GestionnaireTournois:
             equipes = L.equipes_du_lancement(tournoi, init)
             etat = L.nouvel_etat(tournoi, equipes, nombre_de_rondes=nombre_de_rondes,
                                  lance_par=lance_par, maintenant=maintenant(), golden_round=golden_round,
-                                 points_zones=points_zones)
+                                 points_zones=points_zones, finale=finale)
             if ancien:
                 self.stockage.archiver_etat(tournoi_id, ancien.get("lance_le") or maintenant())
             # Salon de discussion créé avant par /start_tournament_init.
@@ -686,6 +687,7 @@ class GestionnaireTournois:
             fini = len(etat["rondes"]) >= etat["nombre_de_rondes"]
             if fini:
                 L.terminer(etat, maintenant())
+                L.preparer_finale(etat, partie_finale(), maintenant())  # noté avant l'envoi : jamais renvoyée
                 self.stockage.sauvegarder_etat(etat)
         if fini:
             await self._annoncer_fin_tournoi(etat)
@@ -882,6 +884,18 @@ class GestionnaireTournois:
         await self.messagerie.annonce(etat, embeds=M.embeds_classement(etat, f"🏆 {etat['titre']} — classement final"))
         for e, joueur in L.joueurs(etat):
             await self.messagerie.mp(etat, joueur["id"], M.mp_fin_tournoi(etat, e["id"]))
+        if etat.get("match_finale"):
+            await self._annoncer_finale(etat)
+
+    async def _annoncer_finale(self, etat: dict) -> None:
+        """Finale (BO3) : partie privée à créer dans LOG_CHANNEL, partie à rejoindre en MP aux deux équipes."""
+        finale = etat["match_finale"]
+        log.info("Tournoi %s : finale %s vs %s", etat["tournoi_id"], finale["equipe_a"], finale["equipe_b"])
+        await self.messagerie.journal(M.texte_journal_finale(etat))
+        for equipe_id in (finale["equipe_a"], finale["equipe_b"]):
+            texte = M.mp_finale(etat, equipe_id)
+            for joueur in L.equipe(etat, equipe_id)["joueurs"]:
+                await self.messagerie.mp(etat, joueur["id"], texte, secours=texte)
 
     # ------------------------------------------------------------------- #
 

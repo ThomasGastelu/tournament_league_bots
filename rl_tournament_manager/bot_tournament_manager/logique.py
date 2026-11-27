@@ -11,6 +11,10 @@ basse, la dernière (nb_zones) est la zone haute ⭐.
 Points : victoire +1, défaite 0. À partir du « golden round » (choisi au lancement, 1 par défaut),
 la victoire en zone haute rapporte +3. Les options zone_1 à zone_4 du lancement remplacent ce gain
 pour leur zone, à partir du golden round (champ `points_zones`).
+Classement : points, victoires, différence de buts, buts marqués, puis zone jouée au dernier round
+(la plus haute passe devant), puis nom.
+Finale (option `finals`) : quand tous les rounds sont finis, BO3 entre les 2 premiers du classement,
+noté dans `match_finale` (le bot envoie seulement les infos de partie privée, il ne suit pas le résultat).
 """
 
 from __future__ import annotations
@@ -87,7 +91,7 @@ def equipes_participantes(tournoi: dict) -> list[dict]:
 
 def nouvel_etat(tournoi: dict, equipes: list[dict], *, nombre_de_rondes: int,
                 lance_par: str, maintenant: str, golden_round: int = 1,
-                points_zones: dict[int, int] | None = None) -> dict:
+                points_zones: dict[int, int] | None = None, finale: bool = False) -> dict:
     """`points_zones` : {zone: points d'une victoire dans cette zone à partir du golden round}.
     Les zones absentes gardent le barème normal (+3 en zone haute, +1 ailleurs)."""
     if nombre_de_rondes < 1:
@@ -107,6 +111,8 @@ def nouvel_etat(tournoi: dict, equipes: list[dict], *, nombre_de_rondes: int,
         "nombre_de_rondes": nombre_de_rondes,
         "golden_round": golden_round,  # à partir de ce round, la victoire en zone haute rapporte +3
         "points_zones": points_zones,  # {"<zone>": points} à partir du golden round (options zone_1 à zone_4)
+        "finale": bool(finale),  # option finals : BO3 entre les 2 premiers à la fin des rounds
+        "match_finale": None,    # rempli à la fin des rounds si finale (voir preparer_finale)
         "nb_zones": len(equipes) // 2,
         "lance_par": lance_par,
         "lance_le": maintenant,
@@ -479,12 +485,39 @@ def ronde_complete(ronde: dict) -> bool:
     return all(m["statut"] == MATCH_TERMINE for m in ronde["matchs"])
 
 
+def zone_dernier_round(e: dict) -> int:
+    """Zone où l'équipe a joué son dernier match (0 si elle n'a pas encore joué)."""
+    return e["historique"][-1]["zone"] if e.get("historique") else 0
+
+
 def classement(etat: dict) -> list[dict]:
-    """Points, puis victoires, puis différence de buts, puis buts marqués."""
+    """Points, puis victoires, puis différence de buts, puis buts marqués, puis zone jouée au dernier
+    round (la plus haute passe devant), puis nom."""
     def cle(e: dict):
         return (-e["points"], -e["victoires"], -(e["buts_pour"] - e["buts_contre"]),
-                -e["buts_pour"], e["nom"].casefold())
+                -e["buts_pour"], -zone_dernier_round(e), e["nom"].casefold())
     return sorted(etat["equipes"].values(), key=cle)
+
+
+def a_une_finale(etat: dict) -> bool:
+    """True si le tournoi a été lancé avec `finals: True` (les anciens tournois n'en ont pas)."""
+    return bool(etat.get("finale"))
+
+
+def preparer_finale(etat: dict, partie: dict, maintenant: str) -> dict | None:
+    """À la fin des rounds : note la finale (BO3 entre les 2 premiers du classement) dans `match_finale`.
+    `partie` = {"nom", "mot_de_passe"}. Renvoie None sans finale ou si elle est déjà notée."""
+    if not a_une_finale(etat) or etat.get("match_finale") or len(etat["equipes"]) < 2:
+        return None
+    premier, second = classement(etat)[:2]
+    etat["match_finale"] = {
+        "format": "bo3",
+        "equipe_a": premier["id"],
+        "equipe_b": second["id"],
+        "pp": {"nom": partie["nom"], "mot_de_passe": partie["mot_de_passe"]},
+        "cree_le": maintenant,
+    }
+    return etat["match_finale"]
 
 
 def rang(etat: dict, equipe_id: int) -> int:

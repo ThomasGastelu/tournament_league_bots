@@ -284,6 +284,34 @@ def mp_fin_tournoi(etat: dict, equipe_id: int) -> str:
             f"({e['victoires']}V - {e['defaites']}D). Merci d'avoir joué !")
 
 
+def _infos_pp_finale(etat: dict) -> str:
+    pp = etat["match_finale"]["pp"]
+    return f"🔑 Nom : `{pp['nom']}` · Mot de passe : `{pp['mot_de_passe']}`"
+
+
+def texte_journal_finale(etat: dict) -> str:
+    """LOG_CHANNEL à la fin des rounds : la finale et la partie privée à créer."""
+    finale = etat["match_finale"]
+    return (f"🏆 **Finale (BO3)** du tournoi **{_titre(etat)}** : **{_nom(etat, finale['equipe_a'])}** 🆚 "
+            f"**{_nom(etat, finale['equipe_b'])}**\n"
+            f"Crée la partie privée de la finale :\n{_infos_pp_finale(etat)}")
+
+
+def mp_finale(etat: dict, equipe_id: int) -> str:
+    """MP aux joueurs des deux finalistes : la partie privée à rejoindre."""
+    adversaire = L.adversaire(etat["match_finale"], equipe_id)
+    return (f"🏆 Ton équipe **{_nom(etat, equipe_id)}** joue la **finale (BO3)** du tournoi **{_titre(etat)}** "
+            f"contre **{_nom(etat, adversaire)}** !\n"
+            f"Rejoins la partie privée :\n{_infos_pp_finale(etat)}")
+
+
+def ligne_finale(etat: dict) -> str:
+    """Rappel au lancement : finale ou pas."""
+    if L.a_une_finale(etat):
+        return "🏆 Finale : oui, BO3 entre les 2 premiers à la fin des rounds"
+    return "🏆 Finale : non"
+
+
 def mp_arret(etat: dict, equipe_id: int) -> str:
     e = L.equipe(etat, equipe_id)
     return (f"🛑 Le tournoi **{_titre(etat)}** a été arrêté par un admin. Ton équipe **{_nom(etat, equipe_id)}** "

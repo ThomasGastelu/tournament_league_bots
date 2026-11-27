@@ -5,6 +5,7 @@ Le mot de passe est le même que le nom.
 À partir de 10 zones, la zone s'écrit sur 2 chiffres pour tout le tournoi (round 1 : tomato_101 … tomato_112,
 round 11 : tomato_1101…), sinon le round 1 zone 11 et le round 11 zone 1 donneraient tous deux tomato_111.
 Les parties de chaque round sont aussi écrites dans data/pp/<id>_ronde_<n>.json.
+Finale (option finals) : tomato_finale, mot de passe identique.
 """
 
 from __future__ import annotations
@@ -14,6 +15,12 @@ from datetime import datetime
 from pathlib import Path
 
 PREFIXE = "tomato_"
+
+
+def partie_finale() -> dict:
+    """Partie privée de la finale : {"nom": "tomato_finale", "mot_de_passe": "tomato_finale"}."""
+    nom = f"{PREFIXE}finale"
+    return {"nom": nom, "mot_de_passe": nom}
 
 
 def nom_partie(ronde: int, zone: int, nb_zones: int) -> str:

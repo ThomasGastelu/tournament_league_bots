@@ -8,7 +8,7 @@ Il prend un tournoi créé avec le bot d'inscription (`rl_bot_ppname_creator`), 
 |---|---|---|
 | `/start_tournament_init id_tournoi delai_confirmation` | admins | **Obligatoire** avant le lancement : crée le salon de discussion du tournoi (voir « Salons »), y poste « @here Le tournoi va bientôt commencer, soyez prêts ! Bonne chance à tous 🍀 », et demande aux équipes de **valider leur participation** dans les `delai_confirmation` minutes (1 à 1440), sinon la liste d'attente prend leur place (voir « Validation des participations »). |
 | `/start_tournament_init_status id_tournoi` | admins | Entre `/start_tournament_init` et le lancement : où en sont les équipes (réponse visible par toi seul). Délai restant, nombre d'équipes qui ont validé, puis **✅ Ont validé** (qui a cliqué et à quelle heure), **⏳ Pas encore validé**, **❌ Places perdues** et **📋 Liste d'attente** (avec la position), chaque équipe avec ses joueurs (👑 capitaine, pseudo en jeu). ⬆️ marque les équipes montées de la liste d'attente. Ne modifie rien. |
-| `/start_tournament_rl id_tournoi nombre_de_matchs [golden_round] [zone_1] [zone_2] [zone_3] [zone_4]` | admins | Lance le tournoi avec les équipes qui ont validé leur participation (montées de la liste d'attente comprises), dans le salon créé par `/start_tournament_init`. **Refusé** (message d'erreur, rien n'est lancé) si `/start_tournament_init` n'a pas été fait, ou si le délai de validation n'est pas fini. `nombre_de_matchs` = nombre de matchs joués par chaque équipe (= nombre de rounds). `golden_round` (facultatif, 1 par défaut) = round à partir duquel la victoire en zone haute rapporte +3 (voir « Points »). `zone_1` à `zone_4` (facultatifs, 0 à 20) = points d'une victoire dans cette zone à partir du golden round ; **refusé** si le tournoi n'a pas cette zone (ex. `zone_4` avec 6 équipes). |
+| `/start_tournament_rl id_tournoi nombre_de_matchs finals [golden_round] [zone_1] [zone_2] [zone_3] [zone_4]` | admins | Lance le tournoi avec les équipes qui ont validé leur participation (montées de la liste d'attente comprises), dans le salon créé par `/start_tournament_init`. **Refusé** (message d'erreur, rien n'est lancé) si `/start_tournament_init` n'a pas été fait, ou si le délai de validation n'est pas fini. `nombre_de_matchs` = nombre de matchs joués par chaque équipe (= nombre de rounds). `finals` (obligatoire, `True` ou `False`) = finale en BO3 entre les 2 premiers à la fin des rounds, ou pas (voir « Finale »). `golden_round` (facultatif, 1 par défaut) = round à partir duquel la victoire en zone haute rapporte +3 (voir « Points »). `zone_1` à `zone_4` (facultatifs, 0 à 20) = points d'une victoire dans cette zone à partir du golden round ; **refusé** si le tournoi n'a pas cette zone (ex. `zone_4` avec 6 équipes). |
 | `/start_tournament_rl_status id_tournoi` | tout le monde | Round en cours, état de chaque zone et classement (réponse visible par toi seul). |
 | `/stop_tournament_rl id_tournoi` | admins | Arrête le tournoi (après confirmation) : matchs en cours annulés, joueurs prévenus en MP. |
 | `/start_tournament_modify_pp id_tournoi zone nom [mot_de_passe]` | admins | Change le nom et le mot de passe de la partie privée d'une zone du round en cours (`mot_de_passe` vide = le même que le nom). Partie déjà créée : tous les joueurs du match reçoivent la nouvelle en MP. Sinon : le capitaine reçoit la nouvelle partie à créer, et les autres la recevront à son clic. Noté dans `LOG_CHANNEL`. |
@@ -60,6 +60,12 @@ Un bouton cliqué après le délai répond « le délai est passé ». Le délai
 
 Le tout recommence `nombre_de_matchs` fois. À la fin, le classement final est posté dans le salon des annonces et chaque joueur reçoit sa place en MP.
 
+**Finale** (`finals: True`) : quand tous les rounds sont terminés, juste après le classement final, les 2 premiers du classement jouent une finale en **BO3** :
+- dans `LOG_CHANNEL` : « 🏆 Finale (BO3) : équipe A 🆚 équipe B », avec le nom et le mot de passe de la partie privée **à créer** (`tomato_finale` / `tomato_finale`) ;
+- en MP à **chaque joueur des deux équipes** : l'adversaire, et le nom et le mot de passe de la partie privée **à rejoindre**.
+
+Le bot ne suit pas le résultat de la finale (BO3 géré à la main) : le classement final ne change pas. La finale est notée dans le JSON (`match_finale`) avant l'envoi, donc les messages ne repartent jamais une deuxième fois. Avec `finals: False`, un tournoi arrêté (`/stop_tournament_rl`) ou un tournoi lancé avant cette option : pas de finale.
+
 **Points** : victoire **+1**, défaite **0**. À partir du **golden round 🌟**, la victoire en zone haute ⭐ rapporte **+3**.
 
 | Round | Victoire en zone haute ⭐ | Victoire ailleurs | Défaite |
@@ -70,7 +76,7 @@ Le tout recommence `nombre_de_matchs` fois. À la fin, le classement final est p
 Sans `golden_round` (ou avec `golden_round: 1`), la zone haute rapporte +3 dès le round 1. `golden_round` doit être entre 1 et `nombre_de_matchs`. Exemple : 8 équipes, 4 rounds, `golden_round: 3` → aux rounds 1 et 2 toutes les victoires valent +1, ce qui laisse aux équipes le temps de monter ; aux rounds 3 et 4 la zone haute vaut +3. L'annonce de chaque round rappelle le golden round et le gain de chaque zone ; `/start_tournament_rl_status` affiche le barème du round en cours. Les tournois lancés avant cette option gardent le +3 dès le round 1.
 
 **Points par zone** (`zone_1` à `zone_4`, facultatifs) : chaque option donne les points d'une victoire dans cette zone **à partir du golden round** (avant, toutes les victoires restent à +1 ; une défaite vaut toujours 0). Une zone non renseignée garde le barème ci-dessus (+3 si c'est la zone haute, +1 sinon), comme les zones 5 et plus. Une option pour une zone que le tournoi n'a pas (ex. `zone_4` avec 6 équipes, donc 3 zones) fait **refuser** le lancement. Exemple : 8 équipes, 3 rounds, `golden_round: 2 zone_1: 5 zone_2: 6 zone_3: 7 zone_4: 10` → au round 1 toutes les victoires valent +1, aux rounds 2 et 3 elles valent +5, +6, +7 et +10 selon la zone. Les points choisis sont gardés dans le JSON (`points_zones`), et affichés au lancement, dans l'annonce de chaque round et dans `/start_tournament_rl_status`.
-**Classement** : points, puis victoires, puis différence de buts, puis buts marqués.
+**Classement** : points, puis victoires, puis différence de buts, puis buts marqués, puis zone jouée au dernier round (la plus haute passe devant, par exemple pour la 2e place de la finale), et en tout dernier le nom d'équipe.
 
 **Redémarrage** : tout est enregistré au fur et à mesure. Si le bot redémarre, les tournois en cours reprennent où ils en étaient, les joueurs des matchs en cours reçoivent un rappel, et les boutons déjà envoyés marchent toujours (un capitaine qui avait déjà cliqué n'a pas à recliquer). Le départ du délai avant la demande de score est noté dans le JSON (`chrono_declaration`) : après un redémarrage, le bot attend seulement le temps qui reste (et demande le score tout de suite si le délai est déjà passé).
 
@@ -190,6 +196,8 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
   "nombre_de_rondes": 3,
   "golden_round": 2,
   "points_zones": {"1": 5, "4": 10},
+  "finale": true,
+  "match_finale": {"format": "bo3", "equipe_a": 3, "equipe_b": 5, "pp": {"nom": "tomato_finale", "mot_de_passe": "tomato_finale"}, "cree_le": "2026-11-27T18:00:00"},
   "nb_zones": 4,
   "lance_par": "1540386073958682779",
   "equipes": {

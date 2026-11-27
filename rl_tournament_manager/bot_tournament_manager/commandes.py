@@ -236,6 +236,7 @@ async def start_tournament_init(interaction: discord.Interaction, id_tournoi: st
 @app_commands.describe(
     id_tournoi="ID du tournoi (fichier d'inscription)",
     nombre_de_matchs="Nombre de matchs joués par chaque équipe (= nombre de rounds)",
+    finals="True : finale en BO3 entre les 2 premiers à la fin des rounds · False : pas de finale",
     golden_round="Round à partir duquel la victoire en zone haute rapporte +3, avant : +1 (par défaut : 1)",
     zone_1="Points d'une victoire en zone 1 à partir du golden round (par défaut : +1, ou +3 si zone haute)",
     zone_2="Points d'une victoire en zone 2 à partir du golden round (par défaut : +1, ou +3 si zone haute)",
@@ -247,6 +248,7 @@ async def start_tournament_init(interaction: discord.Interaction, id_tournoi: st
 @app_commands.default_permissions(manage_guild=True)
 async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
                               nombre_de_matchs: app_commands.Range[int, 1, 50],
+                              finals: bool,
                               golden_round: app_commands.Range[int, 1, 50] = 1,
                               zone_1: app_commands.Range[int, 0, L.POINTS_ZONE_MAX] | None = None,
                               zone_2: app_commands.Range[int, 0, L.POINTS_ZONE_MAX] | None = None,
@@ -260,7 +262,8 @@ async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
     try:
         etat = await gestionnaire(interaction).demarrer(
             id_tournoi, nombre_de_matchs, serveur_id=str(interaction.guild_id), lance_par=str(interaction.user.id),
-            golden_round=golden_round, points_zones={1: zone_1, 2: zone_2, 3: zone_3, 4: zone_4})
+            golden_round=golden_round, points_zones={1: zone_1, 2: zone_2, 3: zone_3, 4: zone_4},
+            finale=finals)
     except L.ErreurTournoi as erreur:
         log.info("/start_tournament_rl %s refusé (demandé par %s) : %s", id_tournoi, interaction.user, erreur)
         return await repondre(interaction, f"❌ {erreur}")
@@ -275,6 +278,7 @@ async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
         f"✅ Tournoi **{discord.utils.escape_markdown(etat['titre'])}** lancé : {len(etat['equipes'])} équipes, "
         f"{etat['nb_zones']} zone(s), {etat['nombre_de_rondes']} round(s).\n"
         f"{M.ligne_points(etat)}\n"
+        f"{M.ligne_finale(etat)}\n"
         f"Les capitaines reçoivent les infos de partie privée en MP, les annonces sont postées dans "
         f"<#{gestionnaire(interaction).messagerie.salon_id(etat)}>.\n"
         f"{discussion}"
