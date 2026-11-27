@@ -7,6 +7,8 @@ ils marchent encore après un redémarrage du bot (discord.ui.DynamicItem, enreg
   Il ouvre une petite fenêtre (2 cases : buts de mon équipe, buts de l'adversaire).
 - « ✅ Valider ma participation » : envoyé par /start_tournament_init (avec delai_confirmation)
   aux joueurs inscrits ; un clic suffit pour toute l'équipe.
+- Finale (dans LOG_CHANNEL, admins seulement) : « ✅ Partie privée créée » envoie la partie en MP
+  aux joueurs du BO3 ; « 📝 Entrer le score » (posté DELAI_SCORE_FINALE après) ouvre la fenêtre des manches.
 """
 
 from __future__ import annotations
@@ -182,4 +184,113 @@ class BoutonConfirmation(ui.DynamicItem[ui.Button], template=MODELE_ID_CONFIRMAT
 def vue_confirmation(tournoi_id: str, equipe_id: int) -> ui.View:
     vue = ui.View(timeout=None)
     vue.add_item(BoutonConfirmation(tournoi_id, equipe_id))
+    return vue
+
+
+# --------------------------------------------------------------------------- #
+# Finale (BO3) : boutons postés dans LOG_CHANNEL, réservés aux admins
+# --------------------------------------------------------------------------- #
+
+MODELE_ID_FINALE_PP = r"rlfinpp:(?P<tournoi>\d+)"
+MODELE_ID_FINALE_SCORE = r"rlfinscore:(?P<tournoi>\d+)"
+
+
+def est_admin(interaction: discord.Interaction) -> bool:
+    """Permission « Gérer le serveur » (comme les commandes admins)."""
+    permissions = getattr(interaction.user, "guild_permissions", None)
+    return bool(permissions and permissions.manage_guild)
+
+
+REFUS_ADMIN = "❌ Seuls les admins (permission **Gérer le serveur**) peuvent utiliser ce bouton."
+
+
+class BoutonFinalePP(ui.DynamicItem[ui.Button], template=MODELE_ID_FINALE_PP):
+    """« ✅ Partie privée créée » de la finale : envoie la partie en MP aux joueurs des deux équipes."""
+
+    def __init__(self, tournoi_id: str) -> None:
+        super().__init__(ui.Button(label="Partie privée créée", emoji="✅", style=discord.ButtonStyle.success,
+                                   custom_id=f"rlfinpp:{tournoi_id}"))
+        self.tournoi_id = tournoi_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: ui.Button, match: re.Match[str], /):
+        return cls(match["tournoi"])
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not est_admin(interaction):
+            return await interaction.response.send_message(REFUS_ADMIN, ephemeral=True)
+        await interaction.response.defer()
+        gestionnaire = interaction.client.gestionnaire  # type: ignore[attr-defined]
+        try:
+            reponse = await gestionnaire.signaler_pp_finale(self.tournoi_id, serveur_id=str(interaction.guild_id),
+                                                            par=str(interaction.user.id))
+        except L.ErreurTournoi as erreur:
+            return await interaction.followup.send(f"❌ {erreur}", ephemeral=True)
+        try:  # bouton grisé : on ne peut plus cliquer dessus
+            await interaction.edit_original_response(view=vue_pp_deja_creee())
+        except discord.HTTPException as erreur:
+            log.info("Bouton « Partie privée créée » de la finale pas grisé : %s", erreur)
+        await interaction.followup.send(reponse, ephemeral=True)
+
+
+class BoutonFinaleScore(ui.DynamicItem[ui.Button], template=MODELE_ID_FINALE_SCORE):
+    """« 📝 Entrer le score » de la finale : ouvre la fenêtre des manches gagnées."""
+
+    def __init__(self, tournoi_id: str) -> None:
+        super().__init__(ui.Button(label="Entrer le score", emoji="📝", style=discord.ButtonStyle.primary,
+                                   custom_id=f"rlfinscore:{tournoi_id}"))
+        self.tournoi_id = tournoi_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: ui.Button, match: re.Match[str], /):
+        return cls(match["tournoi"])
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not est_admin(interaction):
+            return await interaction.response.send_message(REFUS_ADMIN, ephemeral=True)
+        gestionnaire = interaction.client.gestionnaire  # type: ignore[attr-defined]
+        etat = gestionnaire.stockage.charger_etat(self.tournoi_id)
+        if etat is None or not etat.get("match_finale"):
+            return await interaction.response.send_message("❌ Ce tournoi n'a plus de finale.", ephemeral=True)
+        finale = etat["match_finale"]
+        await interaction.response.send_modal(FenetreScoreFinale(
+            self.tournoi_id, L.equipe(etat, finale["equipe_a"])["nom"], L.equipe(etat, finale["equipe_b"])["nom"]))
+
+
+class FenetreScoreFinale(ui.Modal):
+    def __init__(self, tournoi_id: str, nom_a: str, nom_b: str) -> None:
+        super().__init__(title="Score de la finale (BO3)", timeout=600)
+        self.tournoi_id = tournoi_id
+        self.manches_a = ui.TextInput(label=f"Manches gagnées par {nom_a}"[:45], placeholder="0, 1 ou 2",
+                                      min_length=1, max_length=1)
+        self.manches_b = ui.TextInput(label=f"Manches gagnées par {nom_b}"[:45], placeholder="0, 1 ou 2",
+                                      min_length=1, max_length=1)
+        self.add_item(self.manches_a)
+        self.add_item(self.manches_b)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        brut = (self.manches_a.value.strip(), self.manches_b.value.strip())
+        if not all(b.isdigit() for b in brut):
+            return await interaction.response.send_message(
+                "❌ Mets seulement des nombres (ex. 2 et 1). Reclique sur le bouton pour recommencer.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        gestionnaire = interaction.client.gestionnaire  # type: ignore[attr-defined]
+        try:
+            reponse = await gestionnaire.enregistrer_score_finale(
+                self.tournoi_id, int(brut[0]), int(brut[1]), serveur_id=str(interaction.guild_id),
+                par=str(interaction.user.id))
+        except L.ErreurTournoi as erreur:
+            reponse = f"❌ {erreur} Reclique sur le bouton pour recommencer."
+        await interaction.followup.send(reponse, ephemeral=True)
+
+
+def vue_finale_pp(tournoi_id: str) -> ui.View:
+    vue = ui.View(timeout=None)
+    vue.add_item(BoutonFinalePP(tournoi_id))
+    return vue
+
+
+def vue_finale_score(tournoi_id: str) -> ui.View:
+    vue = ui.View(timeout=None)
+    vue.add_item(BoutonFinaleScore(tournoi_id))
     return vue

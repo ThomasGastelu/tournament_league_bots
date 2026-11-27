@@ -14,7 +14,8 @@ pour leur zone, à partir du golden round (champ `points_zones`).
 Classement : points, victoires, différence de buts, buts marqués, puis zone jouée au dernier round
 (la plus haute passe devant), puis nom.
 Finale (option `finals`) : quand tous les rounds sont finis, BO3 entre les 2 premiers du classement,
-noté dans `match_finale` (le bot envoie seulement les infos de partie privée, il ne suit pas le résultat).
+noté dans `match_finale`. Un admin clique « Partie privée créée » dans LOG_CHANNEL (les joueurs reçoivent
+la partie en MP), puis entre le score (manches gagnées : 2-0, 2-1, 1-2 ou 0-2) ; le classement ne change pas.
 """
 
 from __future__ import annotations
@@ -504,9 +505,10 @@ def a_une_finale(etat: dict) -> bool:
     return bool(etat.get("finale"))
 
 
-def preparer_finale(etat: dict, partie: dict, maintenant: str) -> dict | None:
+def preparer_finale(etat: dict, partie: dict, maintenant: str, gain: str = "") -> dict | None:
     """À la fin des rounds : note la finale (BO3 entre les 2 premiers du classement) dans `match_finale`.
-    `partie` = {"nom", "mot_de_passe"}. Renvoie None sans finale ou si elle est déjà notée."""
+    `partie` = {"nom", "mot_de_passe"}, `gain` = texte du gain (GAIN_FINALE, ex. « 10 € »).
+    Renvoie None sans finale ou si elle est déjà notée."""
     if not a_une_finale(etat) or etat.get("match_finale") or len(etat["equipes"]) < 2:
         return None
     premier, second = classement(etat)[:2]
@@ -516,8 +518,69 @@ def preparer_finale(etat: dict, partie: dict, maintenant: str) -> dict | None:
         "equipe_b": second["id"],
         "pp": {"nom": partie["nom"], "mot_de_passe": partie["mot_de_passe"]},
         "cree_le": maintenant,
+        "gain": gain,
+        "pp_creee_le": None,      # clic « Partie privée créée » dans LOG_CHANNEL
+        "pp_creee_par": None,
+        "score_demande_le": None,  # bouton « Entrer le score » posté dans LOG_CHANNEL
+        "score": None,             # {"equipe_a": manches, "equipe_b": manches}
+        "vainqueur": None,
+        "score_le": None,
+        "score_par": None,
     }
     return etat["match_finale"]
+
+
+SCORES_BO3 = {(2, 0), (2, 1), (1, 2), (0, 2)}
+
+
+def finale(etat: dict) -> dict:
+    """La finale notée, sinon ErreurTournoi."""
+    match = etat.get("match_finale")
+    if not match:
+        raise ErreurTournoi("Ce tournoi n'a pas de finale.")
+    return match
+
+
+def signaler_pp_finale(etat: dict, *, par: str, maintenant: str) -> dict:
+    """Clic « Partie privée créée » de la finale. Refusé s'il a déjà eu lieu (les MP ne repartent pas)."""
+    match = finale(etat)
+    if match.get("pp_creee_le"):
+        raise ErreurTournoi("La partie privée de la finale est déjà signalée : les joueurs ont reçu leur MP.")
+    match["pp_creee_le"] = maintenant
+    match["pp_creee_par"] = par
+    return match
+
+
+def ouvrir_score_finale(etat: dict, maintenant: str) -> bool:
+    """Note que le bouton « Entrer le score » est posté. False s'il l'est déjà (ou si le score est connu)."""
+    match = finale(etat)
+    if match.get("score_demande_le") or match.get("score"):
+        return False
+    match["score_demande_le"] = maintenant
+    return True
+
+
+def enregistrer_score_finale(etat: dict, manches_a: int, manches_b: int, *, par: str, maintenant: str) -> bool:
+    """Score du BO3 (manches gagnées par equipe_a et equipe_b). Renvoie True si c'est une correction.
+    Le classement par points ne change pas."""
+    match = finale(etat)
+    if not match.get("pp_creee_le"):
+        raise ErreurTournoi("Clique d'abord sur « Partie privée créée » pour la finale.")
+    if (manches_a, manches_b) not in SCORES_BO3:
+        raise ErreurTournoi(f"Score impossible pour un BO3 : {manches_a}-{manches_b}. "
+                            "Mets les manches gagnées : 2-0, 2-1, 1-2 ou 0-2.")
+    correction = match.get("score") is not None
+    match["score"] = {"equipe_a": manches_a, "equipe_b": manches_b}
+    match["vainqueur"] = match["equipe_a"] if manches_a > manches_b else match["equipe_b"]
+    match["score_le"] = maintenant
+    match["score_par"] = par
+    return correction
+
+
+def score_finale_de(match: dict, equipe_id: int) -> tuple[int, int]:
+    """(manches de l'équipe, manches de l'adversaire)."""
+    a, b = match["score"]["equipe_a"], match["score"]["equipe_b"]
+    return (a, b) if equipe_id == match["equipe_a"] else (b, a)
 
 
 def rang(etat: dict, equipe_id: int) -> int:

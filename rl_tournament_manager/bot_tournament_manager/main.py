@@ -13,7 +13,8 @@ from . import logique as L
 from . import messages as M
 from .commandes import COMMANDES, gerer_erreur
 from .config import Config, ErreurConfig, charger_config
-from .declaration import BoutonConfirmation, BoutonDeclaration, BoutonPartieCreee
+from .declaration import (BoutonConfirmation, BoutonDeclaration, BoutonFinalePP, BoutonFinaleScore,
+                          BoutonPartieCreee)
 from .deroulement import GestionnaireTournois, MessagerieDiscord, permissions_manquantes
 from .journal import HORS_JOURNAL, JournalDiscord
 from .simulation import Simulation
@@ -50,6 +51,8 @@ class BotTournoi(discord.Client):
             attente_clic_pp_max=config.attente_clic_pp_max,
             delai_declaration=config.delai_declaration,
             pp_forcee_zone_2=config.pp_forcee_zone_2,
+            gain_finale=config.gain_finale,
+            delai_score_finale=config.delai_score_finale,
             simulation=Simulation(delai_clic=config.simulation_delai_clic,
                                   delai_declaration=config.simulation_delai_declaration,
                                   proba_desaccord=config.simulation_proba_desaccord,
@@ -77,7 +80,8 @@ class BotTournoi(discord.Client):
             self.journal.demarrer(asyncio.get_running_loop())
         # Boutons des MP (« Partie privée créée », « Déclarer le score », « Valider ma participation ») :
         # ils marchent encore après un redémarrage.
-        self.add_dynamic_items(BoutonPartieCreee, BoutonDeclaration, BoutonConfirmation)
+        self.add_dynamic_items(BoutonPartieCreee, BoutonDeclaration, BoutonConfirmation, BoutonFinalePP,
+                               BoutonFinaleScore)
 
         if self.config.serveur_id:
             # Sur un seul serveur : les commandes apparaissent tout de suite.

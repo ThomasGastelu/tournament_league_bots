@@ -39,10 +39,12 @@ def test_finale_notee_entre_les_deux_premiers():
     e = etat()
     jouer(e, 3, points=4, zone=4)
     jouer(e, 5, points=2, zone=3)
-    finale = L.preparer_finale(e, partie_finale(), "2026-11-27T18:00:00")
+    finale = L.preparer_finale(e, partie_finale(), "2026-11-27T18:00:00", gain="10 €")
     assert finale == {"format": "bo3", "equipe_a": 3, "equipe_b": 5,
                       "pp": {"nom": "tomato_finale", "mot_de_passe": "tomato_finale"},
-                      "cree_le": "2026-11-27T18:00:00"}
+                      "cree_le": "2026-11-27T18:00:00", "gain": "10 €",
+                      "pp_creee_le": None, "pp_creee_par": None, "score_demande_le": None,
+                      "score": None, "vainqueur": None, "score_le": None, "score_par": None}
     assert e["match_finale"] is finale
 
 
@@ -94,13 +96,15 @@ def test_textes_de_la_finale():
     e = etat()
     jouer(e, 3, points=4, zone=4)
     jouer(e, 5, points=2, zone=3)
-    L.preparer_finale(e, partie_finale(), "t")
+    L.preparer_finale(e, partie_finale(), "t", gain="10 €")
     a, b = L.equipe(e, 3)["nom"], L.equipe(e, 5)["nom"]
     journal = M.texte_journal_finale(e)
     assert "Finale (BO3)" in journal and a in journal and b in journal
     assert "Crée la partie privée" in journal and "`tomato_finale`" in journal
+    assert "**Partie privée créée**" in journal
     mp = M.mp_finale(e, 5)
-    assert f"contre **{a}**" in mp and "Rejoins la partie privée" in mp and "`tomato_finale`" in mp
+    assert mp.startswith(f"🏆 Rejoins **{e['titre']}** · **BO3 final** · 💰 **10 € à gagner** !")
+    assert f"affronte **{a}**" in mp and "`tomato_finale`" in mp
     assert M.ligne_finale(e).startswith("🏆 Finale : oui")
     assert M.ligne_finale(etat(finale=False)) == "🏆 Finale : non"
 
@@ -136,19 +140,16 @@ def test_tournoi_complet_avec_finale(tmp_path):
     finale = e["match_finale"]
     assert (finale["equipe_a"], finale["equipe_b"]) == (premier["id"], second["id"])
 
-    # LOG_CHANNEL : la partie privée à créer.
-    journaux_finale = [j for j in messagerie.journaux if "Finale (BO3)" in j]
-    assert len(journaux_finale) == 1 and "`tomato_finale`" in journaux_finale[0]
-
-    # MP à tous les joueurs des deux finalistes, et à eux seuls.
-    finalistes = {j["id"] for eq in (premier, second) for j in eq["joueurs"]}
-    recus = {joueur_id for joueur_id, texte in messagerie.mps if "Rejoins la partie privée" in texte}
-    assert recus == finalistes
+    # LOG_CHANNEL : la partie privée à créer, avec le bouton « Partie privée créée ».
+    [(texte, bouton)] = messagerie.boutons_finale
+    assert "Finale (BO3)" in texte and "`tomato_finale`" in texte and bouton == ("pp", TID)
+    # Les joueurs ne reçoivent rien avant le clic.
+    assert not any("BO3 final" in texte for _, texte in messagerie.mps)
 
 
 def test_tournoi_complet_sans_finale(tmp_path):
     e, messagerie = lancer(tmp_path, finale=False)
 
     assert e["statut"] == L.TERMINE and e["match_finale"] is None
-    assert not any("Finale" in j for j in messagerie.journaux)
-    assert not any("finale" in texte for _, texte in messagerie.mps)
+    assert not any("Finale" in j for j in messagerie.journaux) and messagerie.boutons_finale == []
+    assert not any("finale" in texte.lower() for _, texte in messagerie.mps)

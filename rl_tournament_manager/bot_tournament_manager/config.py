@@ -35,6 +35,8 @@ class Config:
     simulation_proba_desaccord: float = 0
     auto_validation: bool = True      # AUTO_VALIDATION=1 : en simulation, « Valider ma participation » automatique
     pp_forcee_zone_2: tuple[str, str] | None = None  # TESTS : (nom, mot de passe) imposés à la zone 2
+    gain_finale: str = "10 €"         # GAIN_FINALE : « … à gagner » dans le MP de la finale
+    delai_score_finale: float = 900   # DELAI_SCORE_FINALE : clic « Partie privée créée » → bouton du score
 
 
 AIDE_TOKEN = (
@@ -146,4 +148,6 @@ def charger_config() -> Config:
         pp_forcee_zone_2=_pp_forcee("PP_FORCEE_ZONE_2"),
         log_channel=_id_salon("LOG_CHANNEL"),
         salon_resultats=_id_salon("SALON_RESULTATS"),
+        gain_finale=os.getenv("GAIN_FINALE", "").strip() or "10 €",
+        delai_score_finale=_nombre("DELAI_SCORE_FINALE", 900.0, 0),
     )

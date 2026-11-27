@@ -75,6 +75,7 @@ class FausseMessagerie:
         self.salons_supprimes: list[str] = []
         self.suppression_salon_possible = True  # False : comme sans « Gérer les salons »
         self.journaux: list[str] = []      # messages d'information de LOG_CHANNEL
+        self.boutons_finale: list[tuple[str, tuple[str, str]]] = []  # LOG_CHANNEL : (texte, ("pp"|"score", tournoi))
         self.messages_salons: list[tuple[str, str, bool]] = []  # (salon, texte, @here)
         self.resultats_rondes: list[list] = []  # récaps de fin de round (SALON_RESULTATS)
         self.textes_resultats: list[str] = []   # autres messages du salon des résultats (lancement)
@@ -162,8 +163,10 @@ class FausseMessagerie:
             self.salons_supprimes.append(salon_id)
         return self.suppression_salon_possible
 
-    async def journal(self, texte) -> None:
+    async def journal(self, texte, bouton_finale=None) -> None:
         self.journaux.append(texte)
+        if bouton_finale:
+            self.boutons_finale.append((texte, bouton_finale))
 
     async def resultats(self, etat, texte=None, embeds=None) -> None:
         if embeds:

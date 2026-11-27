@@ -294,15 +294,77 @@ def texte_journal_finale(etat: dict) -> str:
     finale = etat["match_finale"]
     return (f"🏆 **Finale (BO3)** du tournoi **{_titre(etat)}** : **{_nom(etat, finale['equipe_a'])}** 🆚 "
             f"**{_nom(etat, finale['equipe_b'])}**\n"
-            f"Crée la partie privée de la finale :\n{_infos_pp_finale(etat)}")
+            f"Crée la partie privée de la finale :\n{_infos_pp_finale(etat)}\n"
+            f"✅ Une fois la partie créée, clique sur **Partie privée créée** : les joueurs des deux équipes "
+            f"recevront le nom et le mot de passe en MP.")
+
+
+def _gain(etat: dict) -> str:
+    return escape_markdown(etat["match_finale"].get("gain") or "")
 
 
 def mp_finale(etat: dict, equipe_id: int) -> str:
-    """MP aux joueurs des deux finalistes : la partie privée à rejoindre."""
+    """MP aux joueurs des deux finalistes (après le clic « Partie privée créée ») : la partie à rejoindre."""
     adversaire = L.adversaire(etat["match_finale"], equipe_id)
-    return (f"🏆 Ton équipe **{_nom(etat, equipe_id)}** joue la **finale (BO3)** du tournoi **{_titre(etat)}** "
-            f"contre **{_nom(etat, adversaire)}** !\n"
-            f"Rejoins la partie privée :\n{_infos_pp_finale(etat)}")
+    gain = f" · 💰 **{_gain(etat)} à gagner**" if _gain(etat) else ""
+    return (f"🏆 Rejoins **{_titre(etat)}** · **BO3 final**{gain} !\n"
+            f"Ton équipe **{_nom(etat, equipe_id)}** affronte **{_nom(etat, adversaire)}**.\n"
+            f"Partie privée à rejoindre :\n{_infos_pp_finale(etat)}")
+
+
+def reponse_pp_finale(nb_mp: int, delai_minutes: int) -> str:
+    """Réponse (éphémère) à l'admin qui a cliqué « Partie privée créée » pour la finale."""
+    return (f"✅ Partie de la finale signalée : MP envoyé à {nb_mp} joueur{'s' if nb_mp > 1 else ''}. "
+            f"📝 Le bouton pour entrer le score arrive dans ce salon dans {delai_minutes} min.")
+
+
+def texte_demande_score_finale(etat: dict) -> str:
+    """LOG_CHANNEL, DELAI_SCORE_FINALE après le clic : bouton « Entrer le score »."""
+    finale = etat["match_finale"]
+    return (f"📝 **Score de la finale (BO3)** du tournoi **{_titre(etat)}** : **{_nom(etat, finale['equipe_a'])}** 🆚 "
+            f"**{_nom(etat, finale['equipe_b'])}**\n"
+            f"Clique sur **Entrer le score** quand le BO3 est fini (manches gagnées : 2-0 ou 2-1).")
+
+
+def _joueurs_equipe(etat: dict, equipe_id: int) -> str:
+    return ", ".join(escape_markdown(j["pseudo"]) for j in L.equipe(etat, equipe_id)["joueurs"])
+
+
+def embeds_resultat_finale(etat: dict, correction: bool = False) -> list[discord.Embed]:
+    """Salon des résultats : vainqueur de la finale BO3."""
+    finale = etat["match_finale"]
+    gagnant = finale["vainqueur"]
+    perdant = L.adversaire(finale, gagnant)
+    pour, contre = L.score_finale_de(finale, gagnant)
+    lignes = [
+        f"🥇 **{_nom(etat, gagnant)}** remporte la finale **{pour}-{contre}** contre **{_nom(etat, perdant)}** !",
+        f"👥 {_joueurs_equipe(etat, gagnant)}",
+    ]
+    if _gain(etat):
+        lignes.append(f"💰 {_gain(etat)} à gagner")
+    if correction:
+        lignes.insert(0, "✏️ *Score corrigé.*")
+    return _embeds(f"🏆 {etat['titre']} — vainqueur de la finale BO3", lignes, f"ID tournoi : {etat['tournoi_id']}")
+
+
+def mp_resultat_finale(etat: dict, equipe_id: int) -> str:
+    finale = etat["match_finale"]
+    pour, contre = L.score_finale_de(finale, equipe_id)
+    adversaire = _nom(etat, L.adversaire(finale, equipe_id))
+    if finale["vainqueur"] == equipe_id:
+        return (f"🏆 Bravo ! Ton équipe **{_nom(etat, equipe_id)}** remporte la finale (BO3) du tournoi "
+                f"**{_titre(etat)}** **{pour}-{contre}** contre **{adversaire}** !")
+    return (f"🥈 Ton équipe **{_nom(etat, equipe_id)}** perd la finale (BO3) du tournoi **{_titre(etat)}** "
+            f"**{pour}-{contre}** contre **{adversaire}**. Bravo pour ce parcours !")
+
+
+def texte_journal_score_finale(etat: dict, par: str, correction: bool) -> str:
+    finale = etat["match_finale"]
+    gagnant = finale["vainqueur"]
+    pour, contre = L.score_finale_de(finale, gagnant)
+    quoi = "corrigé" if correction else "enregistré"
+    return (f"✅ Score de la finale du tournoi **{_titre(etat)}** {quoi} par <@{par}> : **{_nom(etat, gagnant)}** "
+            f"gagne **{pour}-{contre}**. Résultat posté dans le salon des résultats.")
 
 
 def ligne_finale(etat: dict) -> str:

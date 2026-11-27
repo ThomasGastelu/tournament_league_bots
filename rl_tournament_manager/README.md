@@ -62,10 +62,12 @@ Un bouton cliqué après le délai répond « le délai est passé ». Le délai
 Le tout recommence `nombre_de_matchs` fois. À la fin, le classement final est posté dans le salon des annonces et chaque joueur reçoit sa place en MP.
 
 **Finale** (`finals: True`) : quand tous les rounds sont terminés, juste après le classement final, les 2 premiers du classement jouent une finale en **BO3** :
-- dans `LOG_CHANNEL` : « 🏆 Finale (BO3) : équipe A 🆚 équipe B », avec le nom et le mot de passe de la partie privée **à créer** (`tomato_finale` / `tomato_finale`) ;
-- en MP à **chaque joueur des deux équipes** : l'adversaire, et le nom et le mot de passe de la partie privée **à rejoindre**.
+1. dans `LOG_CHANNEL` : « 🏆 Finale (BO3) : équipe A 🆚 équipe B », avec le nom et le mot de passe de la partie privée **à créer** (`tomato_finale` / `tomato_finale`) et le bouton **✅ Partie privée créée** ;
+2. un admin crée la partie puis clique sur le bouton (admins seulement, un seul clic : le bouton se grise) : **chaque joueur des deux équipes** reçoit en MP « 🏆 Rejoins **<tournoi>** · **BO3 final** · 💰 **10 € à gagner** ! », l'adversaire, et le nom et le mot de passe de la partie **à rejoindre** (gain réglé par `GAIN_FINALE`) ;
+3. `DELAI_SCORE_FINALE` après le clic (**15 min** par défaut), le bot poste dans `LOG_CHANNEL` « 📝 Score de la finale (BO3) » avec le bouton **📝 Entrer le score** (admins seulement) : une petite fenêtre demande les manches gagnées par chaque équipe (seuls 2-0, 2-1, 1-2 et 0-2 sont acceptés) ;
+4. score validé : le bot poste dans le salon des résultats (`SALON_RESULTATS`, sinon les annonces) « 🏆 <tournoi> — vainqueur de la finale BO3 » (équipe gagnante, score, joueurs, gain), envoie le résultat en MP aux joueurs des deux équipes et le note dans `LOG_CHANNEL`. Un nouveau clic sur **Entrer le score** corrige le score (le résultat est reposté avec « Score corrigé »).
 
-Le bot ne suit pas le résultat de la finale (BO3 géré à la main) : le classement final ne change pas. La finale est notée dans le JSON (`match_finale`) avant l'envoi, donc les messages ne repartent jamais une deuxième fois. Avec `finals: False`, un tournoi arrêté (`/stop_tournament_rl`) ou un tournoi lancé avant cette option : pas de finale.
+Le classement par points ne change pas avec la finale. Tout est noté dans le JSON (`match_finale`) : les MP ne repartent jamais deux fois, les boutons marchent après un redémarrage, et le délai avant le bouton du score reprend là où il en était. Avec `finals: False`, un tournoi arrêté (`/stop_tournament_rl`) ou un tournoi lancé avant cette option : pas de finale.
 
 **Points** : victoire **+1**, défaite **0**. À partir du **golden round 🌟**, la victoire en zone haute ⭐ rapporte **+3**.
 
@@ -198,7 +200,7 @@ Si `LOG_CHANNEL` est vide, les alertes partent en MP à l'admin qui a lancé le 
   "golden_round": 2,
   "points_zones": {"1": 5, "4": 10},
   "finale": true,
-  "match_finale": {"format": "bo3", "equipe_a": 3, "equipe_b": 5, "pp": {"nom": "tomato_finale", "mot_de_passe": "tomato_finale"}, "cree_le": "2026-11-27T18:00:00"},
+  "match_finale": {"format": "bo3", "equipe_a": 3, "equipe_b": 5, "pp": {"nom": "tomato_finale", "mot_de_passe": "tomato_finale"}, "cree_le": "2026-11-27T18:00:00", "gain": "10 €", "pp_creee_le": "2026-11-27T18:05:00", "pp_creee_par": "1540386073958682779", "score_demande_le": "2026-11-27T18:20:00", "score": {"equipe_a": 2, "equipe_b": 1}, "vainqueur": 3, "score_le": "2026-11-27T18:31:00", "score_par": "1540386073958682779"},
   "nb_zones": 4,
   "lance_par": "1540386073958682779",
   "equipes": {
@@ -265,6 +267,8 @@ Dans le `.env` (valeurs en secondes) :
 | `RAPPEL_CLIC_PP` | 180 | Rappel au capitaine qui n'a pas cliqué sur « Partie privée créée ». |
 | `ATTENTE_CLIC_PP_MAX` | 600 | Sans clic, le délai avant la demande de score démarre quand même (avec une alerte). |
 | `DELAI_DECLARATION` | 360 | Attente après le clic avant le MP « Déclarer le score » (6 min). |
+| `GAIN_FINALE` | 10 € | Gain affiché dans le MP de la finale (« … à gagner »). Vide : 10 €. |
+| `DELAI_SCORE_FINALE` | 900 | Finale : attente entre le clic « Partie privée créée » et le bouton « Entrer le score » (15 min). Mets 10 pour tester. |
 
 Pour tester un tournoi sans jouer : `DELAI_DECLARATION=5` et `ATTENTE_CLIC_PP_MAX=30`, puis déclare les scores toi-même avec les boutons (ou `/set_result_tournament_rl`), ou active le mode simulation ci-dessous.
 

@@ -99,8 +99,10 @@ class Messagerie(Protocol):
         """Supprime un salon de discussion du tournoi (/reset_tournament_rl). True s'il n'existe plus."""
         ...
 
-    async def journal(self, texte: str) -> None:
-        """Message d'information dans LOG_CHANNEL, sans mentionner personne."""
+    async def journal(self, texte: str, bouton_finale: tuple[str, str] | None = None) -> None:
+        """Message d'information dans LOG_CHANNEL, sans mentionner personne.
+        `bouton_finale` = ("pp" ou "score", tournoi) : bouton « Partie privée créée » ou « Entrer le score »
+        de la finale."""
         ...
 
     async def resultats(self, etat: dict, texte: str | None = None,
@@ -120,6 +122,8 @@ class GestionnaireTournois:
         attente_clic_pp_max: float = 600,
         delai_declaration: float = 360,
         pp_forcee_zone_2: tuple[str, str] | None = None,
+        gain_finale: str = "10 €",
+        delai_score_finale: float = 900,
         generer_pp: Callable[[int, Path, int], list[dict]] = generer_parties,
         rng: random.Random | None = None,
         simulation: Simulation | None = None,
@@ -131,6 +135,9 @@ class GestionnaireTournois:
         self.attente_clic_pp_max = attente_clic_pp_max
         self.delai_declaration = delai_declaration
         self.pp_forcee_zone_2 = pp_forcee_zone_2
+        self.gain_finale = gain_finale                # GAIN_FINALE : texte du gain dans le MP de la finale
+        self.delai_score_finale = delai_score_finale  # DELAI_SCORE_FINALE : clic → bouton « Entrer le score »
+        self._taches_finale: dict[str, asyncio.Task] = {}
         self.generer_pp = generer_pp
         self.rng = rng or random.Random()
         self.simulation = simulation  # SIMULATION=1 : clics et déclarations automatiques (simulation.py)
@@ -293,6 +300,12 @@ class GestionnaireTournois:
             if L.confirmation_en_cours(init):
                 self._lancer_confirmation(init["tournoi_id"])
                 ids.append(f"{init['tournoi_id']} (validation des participations)")
+        # Finale : partie signalée mais bouton du score pas encore posté, le délai reprend.
+        for etat in self.stockage.lister_etats():
+            finale = etat.get("match_finale") or {}
+            if finale.get("pp_creee_le") and not finale.get("score_demande_le") and not finale.get("score"):
+                self._lancer_score_finale(etat["tournoi_id"])
+                ids.append(f"{etat['tournoi_id']} (score de la finale)")
         return ids
 
     async def arreter(self, tournoi_id: str, *, serveur_id: str, par: str) -> dict:
@@ -541,7 +554,7 @@ class GestionnaireTournois:
     async def fermer(self) -> None:
         """Arrêt du bot : les tâches s'arrêtent, les tournois restent « en cours » et reprendront."""
         taches = (list(self._taches.values()) + list(self._taches_matchs.values())
-                  + list(self._taches_confirmation.values()))
+                  + list(self._taches_confirmation.values()) + list(self._taches_finale.values()))
         for tache in taches:
             tache.cancel()
         await asyncio.gather(*taches, return_exceptions=True)
@@ -687,7 +700,7 @@ class GestionnaireTournois:
             fini = len(etat["rondes"]) >= etat["nombre_de_rondes"]
             if fini:
                 L.terminer(etat, maintenant())
-                L.preparer_finale(etat, partie_finale(), maintenant())  # noté avant l'envoi : jamais renvoyée
+                L.preparer_finale(etat, partie_finale(), maintenant(), gain=self.gain_finale)  # jamais renvoyée
                 self.stockage.sauvegarder_etat(etat)
         if fini:
             await self._annoncer_fin_tournoi(etat)
@@ -888,14 +901,81 @@ class GestionnaireTournois:
             await self._annoncer_finale(etat)
 
     async def _annoncer_finale(self, etat: dict) -> None:
-        """Finale (BO3) : partie privée à créer dans LOG_CHANNEL, partie à rejoindre en MP aux deux équipes."""
+        """Finale (BO3) : partie privée à créer dans LOG_CHANNEL, avec le bouton « Partie privée créée ».
+        Les joueurs reçoivent la partie en MP au clic (signaler_pp_finale)."""
         finale = etat["match_finale"]
         log.info("Tournoi %s : finale %s vs %s", etat["tournoi_id"], finale["equipe_a"], finale["equipe_b"])
-        await self.messagerie.journal(M.texte_journal_finale(etat))
+        await self.messagerie.journal(M.texte_journal_finale(etat), bouton_finale=("pp", etat["tournoi_id"]))
+
+    # ------------------------------------------------------------------- #
+    # Finale (boutons de LOG_CHANNEL)
+    # ------------------------------------------------------------------- #
+
+    async def signaler_pp_finale(self, tournoi_id: str, *, serveur_id: str, par: str) -> str:
+        """Clic « Partie privée créée » de la finale : MP aux joueurs des deux équipes, puis bouton du score
+        dans LOG_CHANNEL après DELAI_SCORE_FINALE."""
+        async with self.stockage.verrou(tournoi_id):
+            etat = self._etat_du_serveur(tournoi_id, serveur_id)
+            finale = L.signaler_pp_finale(etat, par=par, maintenant=maintenant())
+            self.stockage.sauvegarder_etat(etat)
+        log.info("Tournoi %s : partie de la finale signalée par %s", tournoi_id, par)
+        nb_mp = 0
         for equipe_id in (finale["equipe_a"], finale["equipe_b"]):
             texte = M.mp_finale(etat, equipe_id)
             for joueur in L.equipe(etat, equipe_id)["joueurs"]:
                 await self.messagerie.mp(etat, joueur["id"], texte, secours=texte)
+                nb_mp += 1
+        self._lancer_score_finale(tournoi_id)
+        return M.reponse_pp_finale(nb_mp, max(1, round(self.delai_score_finale / 60)))
+
+    def _lancer_score_finale(self, tournoi_id: str) -> None:
+        tache = self._taches_finale.get(tournoi_id)
+        if tache is None or tache.done():
+            self._taches_finale[tournoi_id] = asyncio.create_task(self._demander_score_finale(tournoi_id),
+                                                                  name=f"finale-{tournoi_id}")
+
+    async def attendre_score_finale(self, tournoi_id: str) -> None:
+        """Tests : attend que le bouton du score de la finale soit posté."""
+        tache = self._taches_finale.get(tournoi_id)
+        if tache:
+            await tache
+
+    async def _demander_score_finale(self, tournoi_id: str) -> None:
+        try:
+            etat = self.stockage.charger_etat(tournoi_id)
+            depart = ((etat or {}).get("match_finale") or {}).get("pp_creee_le")
+            if not depart:
+                return
+            await asyncio.sleep(_secondes_restantes(depart, self.delai_score_finale))
+            async with self.stockage.verrou(tournoi_id):
+                etat = self.stockage.charger_etat(tournoi_id)
+                if etat is None or not L.ouvrir_score_finale(etat, maintenant()):
+                    return
+                self.stockage.sauvegarder_etat(etat)
+            log.info("Tournoi %s : score de la finale demandé dans LOG_CHANNEL", tournoi_id)
+            await self.messagerie.journal(M.texte_demande_score_finale(etat), bouton_finale=("score", tournoi_id))
+        finally:
+            if self._taches_finale.get(tournoi_id) is asyncio.current_task():
+                del self._taches_finale[tournoi_id]
+
+    async def enregistrer_score_finale(self, tournoi_id: str, manches_a: int, manches_b: int, *,
+                                       serveur_id: str, par: str) -> str:
+        """Score du BO3 (manches gagnées par equipe_a et equipe_b) : résultat dans le salon des résultats,
+        MP aux joueurs des deux équipes, note dans LOG_CHANNEL."""
+        async with self.stockage.verrou(tournoi_id):
+            etat = self._etat_du_serveur(tournoi_id, serveur_id)
+            correction = L.enregistrer_score_finale(etat, manches_a, manches_b, par=par, maintenant=maintenant())
+            self.stockage.sauvegarder_etat(etat)
+        finale = etat["match_finale"]
+        log.info("Tournoi %s : score de la finale %s-%s (par %s)", tournoi_id, manches_a, manches_b, par)
+        await self.messagerie.resultats(etat, embeds=M.embeds_resultat_finale(etat, correction))
+        for equipe_id in (finale["equipe_a"], finale["equipe_b"]):
+            texte = M.mp_resultat_finale(etat, equipe_id)
+            for joueur in L.equipe(etat, equipe_id)["joueurs"]:
+                await self.messagerie.mp(etat, joueur["id"], texte)
+        await self.messagerie.journal(M.texte_journal_score_finale(etat, par, correction))
+        return (f"✅ Score de la finale {'corrigé' if correction else 'enregistré'} : "
+                f"{manches_a}-{manches_b}. Résultat posté dans le salon des résultats.")
 
     # ------------------------------------------------------------------- #
 
@@ -1039,11 +1119,21 @@ class MessagerieDiscord:
         else:
             await self.annonce(etat, texte=texte, embeds=embeds)
 
-    async def journal(self, texte: str) -> None:
-        """Message dans LOG_CHANNEL (problèmes du bot, démarrage), sans mentionner personne."""
+    async def journal(self, texte: str, bouton_finale: tuple[str, str] | None = None) -> None:
+        """Message dans LOG_CHANNEL (problèmes du bot, démarrage), sans mentionner personne.
+        `bouton_finale` : bouton « Partie privée créée » ("pp") ou « Entrer le score » ("score") de la finale."""
+        from .declaration import vue_finale_pp, vue_finale_score  # ici : utiles seulement avec Discord
+
+        vue = None
+        if bouton_finale:
+            sorte, tournoi_id = bouton_finale
+            vue = vue_finale_pp(tournoi_id) if sorte == "pp" else vue_finale_score(tournoi_id)
         if self.salon_logs:
-            await self._poster(self.salon_logs, texte, None, quoi="LOG_CHANNEL", journal=False,
+            await self._poster(self.salon_logs, texte, None, quoi="LOG_CHANNEL", vue=vue, journal=False,
                                mentions=discord.AllowedMentions.none())
+        elif vue:
+            log.warning("LOG_CHANNEL n'est pas réglé dans le .env : le bouton de la finale du tournoi %s "
+                        "n'a pas pu être posté.", bouton_finale[1])
 
     async def creer_salon_discussion(self, etat: dict) -> int | None:
         """Crée le salon texte du tournoi dans la catégorie du salon où il a été créé (bot d'inscription).
