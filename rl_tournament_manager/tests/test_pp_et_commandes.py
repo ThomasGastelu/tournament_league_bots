@@ -32,9 +32,14 @@ def test_noms_des_commandes():
         "edit_player_tournament_rl", "reset_tournament_rl", "start_tournament_init", "start_tournament_modify_pp",
         "start_tournament_init_status"]
     start = COMMANDES[0]
-    assert [p.name for p in start.parameters] == ["id_tournoi", "nombre_de_matchs", "golden_round"]
-    assert [p.required for p in start.parameters] == [True, True, False]
+    assert [p.name for p in start.parameters] == ["id_tournoi", "nombre_de_matchs", "golden_round",
+                                                  "zone_1", "zone_2", "zone_3", "zone_4"]
+    assert [p.required for p in start.parameters] == [True, True, False, False, False, False, False]
     assert start.get_parameter("golden_round").default == 1
+    for nom in ("zone_1", "zone_2", "zone_3", "zone_4"):
+        zone = start.get_parameter(nom)
+        assert zone.default is None and (zone.min_value, zone.max_value) == (0, 20)
+        assert len(zone.description) <= 100
     edit = COMMANDES[4]
     assert [p.name for p in edit.parameters] == [
         "id_tournoi", "joueur", "pseudo_jeu", "pseudo", "nom_equipe", "devient_capitaine", "remplace_par"]

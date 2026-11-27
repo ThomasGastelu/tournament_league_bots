@@ -237,13 +237,21 @@ async def start_tournament_init(interaction: discord.Interaction, id_tournoi: st
     id_tournoi="ID du tournoi (fichier d'inscription)",
     nombre_de_matchs="Nombre de matchs joués par chaque équipe (= nombre de rounds)",
     golden_round="Round à partir duquel la victoire en zone haute rapporte +3, avant : +1 (par défaut : 1)",
+    zone_1="Points d'une victoire en zone 1 à partir du golden round (par défaut : +1, ou +3 si zone haute)",
+    zone_2="Points d'une victoire en zone 2 à partir du golden round (par défaut : +1, ou +3 si zone haute)",
+    zone_3="Points d'une victoire en zone 3 à partir du golden round (par défaut : +1, ou +3 si zone haute)",
+    zone_4="Points d'une victoire en zone 4 à partir du golden round (par défaut : +1, ou +3 si zone haute)",
 )
 @app_commands.autocomplete(id_tournoi=autocomplete_inscription)
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_guild=True)
 async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
                               nombre_de_matchs: app_commands.Range[int, 1, 50],
-                              golden_round: app_commands.Range[int, 1, 50] = 1) -> None:
+                              golden_round: app_commands.Range[int, 1, 50] = 1,
+                              zone_1: app_commands.Range[int, 0, L.POINTS_ZONE_MAX] | None = None,
+                              zone_2: app_commands.Range[int, 0, L.POINTS_ZONE_MAX] | None = None,
+                              zone_3: app_commands.Range[int, 0, L.POINTS_ZONE_MAX] | None = None,
+                              zone_4: app_commands.Range[int, 0, L.POINTS_ZONE_MAX] | None = None) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     probleme = probleme_salon(interaction, id_tournoi)
     if probleme:
@@ -252,7 +260,7 @@ async def start_tournament_rl(interaction: discord.Interaction, id_tournoi: str,
     try:
         etat = await gestionnaire(interaction).demarrer(
             id_tournoi, nombre_de_matchs, serveur_id=str(interaction.guild_id), lance_par=str(interaction.user.id),
-            golden_round=golden_round)
+            golden_round=golden_round, points_zones={1: zone_1, 2: zone_2, 3: zone_3, 4: zone_4})
     except L.ErreurTournoi as erreur:
         log.info("/start_tournament_rl %s refusé (demandé par %s) : %s", id_tournoi, interaction.user, erreur)
         return await repondre(interaction, f"❌ {erreur}")

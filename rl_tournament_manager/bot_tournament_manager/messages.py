@@ -396,13 +396,33 @@ def reponse_modification(etat: dict, modif: dict, notes: list[str]) -> str:
 # Messages dans le salon
 # --------------------------------------------------------------------------- #
 
+def bareme_golden(etat: dict) -> str:
+    """Gain d'une victoire par zone à partir du golden round, ex. « Zone 4 ⭐ +10 · Zone 3 +7 · ailleurs +1 ».
+    Sans options zone_1 à zone_4 : « zone haute ⭐ +3 »."""
+    if not L.a_points_zones(etat):
+        return f"zone haute ⭐ +{L.POINTS_VICTOIRE_ZONE_HAUTE}"
+    morceaux, ailleurs = [], False
+    for zone in range(etat["nb_zones"], 0, -1):
+        gain = L.points_zone_golden(etat, zone)
+        if gain == L.POINTS_VICTOIRE and str(zone) not in etat["points_zones"]:
+            ailleurs = True
+        else:
+            morceaux.append(f"{zone_titre(etat, zone)} +{gain}")
+    if ailleurs:
+        morceaux.append(f"ailleurs +{L.POINTS_VICTOIRE}")
+    return " · ".join(morceaux)
+
+
 def regle_points(etat: dict, numero: int) -> str:
     """Barème des points au round `numero` (golden round compris)."""
     golden = L.golden_round(etat)
     if L.bonus_zone_haute(etat, numero):
-        texte = "Victoire en zone haute ⭐ : +3 · victoire ailleurs : +1 · défaite : 0"
+        if L.a_points_zones(etat):
+            texte = f"Victoire : {bareme_golden(etat)} · défaite : 0"
+        else:
+            texte = "Victoire en zone haute ⭐ : +3 · victoire ailleurs : +1 · défaite : 0"
         return texte + (f" · 🌟 golden round depuis le round {golden}" if golden > 1 else "")
-    return f"Toutes les victoires : +1 · défaite : 0 · 🌟 golden round au round {golden} : zone haute ⭐ +3"
+    return f"Toutes les victoires : +1 · défaite : 0 · 🌟 golden round au round {golden} : {bareme_golden(etat)}"
 
 
 def ligne_points(etat: dict) -> str:
@@ -416,6 +436,8 @@ def _annonce_golden_round(etat: dict, numero: int) -> list[str]:
     if golden == 1 or numero > golden:
         return []
     if numero == golden:
+        if L.a_points_zones(etat):
+            return [f"🌟 **Golden round !** À partir de maintenant, une victoire rapporte : **{bareme_golden(etat)}**.", ""]
         return ["🌟 **Golden round !** À partir de maintenant, la victoire en zone haute ⭐ rapporte **+3**.", ""]
     return [f"🌟 Golden round au round {golden} : d'ici là, toutes les victoires rapportent +1.", ""]
 

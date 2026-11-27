@@ -9,7 +9,8 @@ basse, la dernière (nb_zones) est la zone haute ⭐.
   - le gagnant d'une zone monte d'une zone (le gagnant de la zone haute y reste) ;
   - le perdant descend d'une zone (le perdant de la zone 1 y reste).
 Points : victoire +1, défaite 0. À partir du « golden round » (choisi au lancement, 1 par défaut),
-la victoire en zone haute rapporte +3.
+la victoire en zone haute rapporte +3. Les options zone_1 à zone_4 du lancement remplacent ce gain
+pour leur zone, à partir du golden round (champ `points_zones`).
 """
 
 from __future__ import annotations
@@ -37,6 +38,8 @@ MATCHS_A_JOUER = (MATCH_EN_ATTENTE, MATCH_EN_COURS)
 POINTS_VICTOIRE_ZONE_HAUTE = 3
 POINTS_VICTOIRE = 1
 POINTS_DEFAITE = 0
+ZONES_PERSONNALISABLES = 4   # options zone_1 à zone_4 de /start_tournament_rl
+POINTS_ZONE_MAX = 20
 
 # Statuts du fichier d'inscription (rl_bot_ppname_creator)
 INSCRITE = "inscrite"
@@ -83,12 +86,16 @@ def equipes_participantes(tournoi: dict) -> list[dict]:
 
 
 def nouvel_etat(tournoi: dict, equipes: list[dict], *, nombre_de_rondes: int,
-                lance_par: str, maintenant: str, golden_round: int = 1) -> dict:
+                lance_par: str, maintenant: str, golden_round: int = 1,
+                points_zones: dict[int, int] | None = None) -> dict:
+    """`points_zones` : {zone: points d'une victoire dans cette zone à partir du golden round}.
+    Les zones absentes gardent le barème normal (+3 en zone haute, +1 ailleurs)."""
     if nombre_de_rondes < 1:
         raise ErreurTournoi("Il faut au moins 1 match par équipe.")
     if not 1 <= golden_round <= nombre_de_rondes:
         raise ErreurTournoi(f"Le golden round doit être entre 1 et {nombre_de_rondes} "
                             f"(le nombre de matchs), pas {golden_round}.")
+    points_zones = verifier_points_zones(points_zones, len(equipes) // 2)
     return {
         "tournoi_id": tournoi["id"],
         "titre": tournoi["titre"],
@@ -99,6 +106,7 @@ def nouvel_etat(tournoi: dict, equipes: list[dict], *, nombre_de_rondes: int,
         "statut": EN_COURS,
         "nombre_de_rondes": nombre_de_rondes,
         "golden_round": golden_round,  # à partir de ce round, la victoire en zone haute rapporte +3
+        "points_zones": points_zones,  # {"<zone>": points} à partir du golden round (options zone_1 à zone_4)
         "nb_zones": len(equipes) // 2,
         "lance_par": lance_par,
         "lance_le": maintenant,
@@ -423,10 +431,43 @@ def bonus_zone_haute(etat: dict, numero_ronde: int) -> bool:
     return numero_ronde >= golden_round(etat)
 
 
+def verifier_points_zones(points_zones: dict[int, int] | None, nb_zones: int) -> dict[str, int]:
+    """Valide les options zone_1 à zone_4 et les met au format JSON ({"<zone>": points}).
+    Refuse une zone que le tournoi n'a pas (ex. zone_4 avec 6 équipes, donc 3 zones)."""
+    resultat = {}
+    for zone, points in sorted((points_zones or {}).items()):
+        if points is None:
+            continue
+        if not 1 <= zone <= ZONES_PERSONNALISABLES:
+            raise ErreurTournoi(f"Seules les zones 1 à {ZONES_PERSONNALISABLES} peuvent avoir des points choisis.")
+        if zone > nb_zones:
+            raise ErreurTournoi(f"`zone_{zone}` est rempli, mais ce tournoi n'a que {nb_zones} zone"
+                                f"{'s' if nb_zones > 1 else ''} ({nb_zones * 2} équipes). "
+                                f"Enlève `zone_{zone}` et relance.")
+        if not 0 <= points <= POINTS_ZONE_MAX:
+            raise ErreurTournoi(f"Les points de `zone_{zone}` doivent être entre 0 et {POINTS_ZONE_MAX}, pas {points}.")
+        resultat[str(zone)] = points
+    return resultat
+
+
+def points_zone_golden(etat: dict, zone: int) -> int:
+    """Points d'une victoire dans `zone` à partir du golden round : l'option zone_N si elle a été donnée,
+    sinon +3 en zone haute et +1 ailleurs. Les anciens tournois (sans `points_zones`) gardent ce barème."""
+    choisis = (etat.get("points_zones") or {}).get(str(zone))
+    if choisis is not None:
+        return choisis
+    return POINTS_VICTOIRE_ZONE_HAUTE if est_zone_haute(etat, zone) else POINTS_VICTOIRE
+
+
+def a_points_zones(etat: dict) -> bool:
+    """True si des points ont été choisis par zone au lancement (options zone_1 à zone_4)."""
+    return bool(etat.get("points_zones"))
+
+
 def points_victoire(etat: dict, zone: int, numero_ronde: int) -> int:
-    """+3 en zone haute à partir du golden round, +1 sinon."""
-    if est_zone_haute(etat, zone) and bonus_zone_haute(etat, numero_ronde):
-        return POINTS_VICTOIRE_ZONE_HAUTE
+    """+1 avant le golden round ; ensuite les points de la zone (+3 en zone haute et +1 ailleurs par défaut)."""
+    if bonus_zone_haute(etat, numero_ronde):
+        return points_zone_golden(etat, zone)
     return POINTS_VICTOIRE
 
 

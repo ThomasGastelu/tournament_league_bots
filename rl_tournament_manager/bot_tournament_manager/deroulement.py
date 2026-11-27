@@ -153,7 +153,7 @@ class GestionnaireTournois:
         return tache is not None and not tache.done()
 
     async def demarrer(self, tournoi_id: str, nombre_de_rondes: int, *, serveur_id: str, lance_par: str,
-                       golden_round: int = 1) -> dict:
+                       golden_round: int = 1, points_zones: dict[int, int] | None = None) -> dict:
         tournoi_id = tournoi_id.strip()
         async with self.stockage.verrou(tournoi_id):
             tournoi = self.stockage.charger_inscription(tournoi_id)
@@ -174,7 +174,8 @@ class GestionnaireTournois:
                     f"{M.heure_discord(init['confirmation']['fin'])} : lance le tournoi après.")
             equipes = L.equipes_du_lancement(tournoi, init)
             etat = L.nouvel_etat(tournoi, equipes, nombre_de_rondes=nombre_de_rondes,
-                                 lance_par=lance_par, maintenant=maintenant(), golden_round=golden_round)
+                                 lance_par=lance_par, maintenant=maintenant(), golden_round=golden_round,
+                                 points_zones=points_zones)
             if ancien:
                 self.stockage.archiver_etat(tournoi_id, ancien.get("lance_le") or maintenant())
             # Salon de discussion créé avant par /start_tournament_init.
